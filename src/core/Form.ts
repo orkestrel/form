@@ -392,11 +392,12 @@ export class Form implements FormInterface {
 	 * @remarks
 	 * A failed submit marks every enabled field touched, so a renderer can show the errors the
 	 * person has not reached yet. A disabled field is neither checked nor submitted. When a changed
-	 * evaluation notifies listeners, submit evaluates once more after those listeners return before
-	 * it decides, unless nested listener work already settled the form. That drain is bounded to one
-	 * evaluation rather than a fixpoint loop: mutations from its own `validate` emission establish
-	 * the state the call decides from. An evaluation that already failed remains the batch's failure
-	 * outcome even when a listener disables its field.
+	 * evaluation notifies listeners, submit evaluates once more after those listeners return, and
+	 * three rules then decide. Listener work that settled the form wins: that settlement is what this
+	 * call returns, with no further evaluation, resolution, or `submit` emission. An evaluation that
+	 * already failed refuses with the list it checked, even when a listener repaired or disabled the
+	 * field that failed. An evaluation that passed decides from the state the drain left, which is
+	 * why one further evaluation bounds the drain rather than a fixpoint loop.
 	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended.
 	 */
 	submit(): FormResult {

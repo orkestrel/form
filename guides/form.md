@@ -446,6 +446,12 @@ schema's own: a key inside `meta` counts against the text budget, and the schema
 `control`, `name`, `rule` — do not. The stricter side is the one the host controls, which is the
 right way round.
 
+The guard reads structure alone, so it admits one record that ownership then refuses: a `meta` whose
+keys are accessors rather than data. That record is bounded JSON by shape, and `cloneFormField`
+copies enumerable data properties only, so taking ownership of it throws `FormError` coded `SCHEMA`
+naming the field. The constructor reaches that refusal through the same clone, which is why a field
+`isFormField` accepted can still be refused when a form opens against it.
+
 **This package defines no key in it.** Every key belongs to the host, so two hosts can carry
 different vocabularies through the same document and neither collides with the package. A key this
 package started reading would stop being the host's.
@@ -973,8 +979,10 @@ moves, so one unknown name throws `FormError` coded `FIELD` and the call changes
 
 **Each announces only what moved.** `disable` and `enable` each fire once per field whose effective
 state actually changed, in the order the schema declares the fields. A call that moves nothing —
-disabling what is already out — announces nothing, recomputes nothing, and returns having written
-nothing, exactly as a `fill` with an unchanged answer does.
+disabling what is already out — returns before it writes anything: no event, no recompute, no
+overlay entry. `fill` is not the same. An unchanged answer suppresses the `fill` event, but the
+answer is still rewritten, the field's invalidation is still dropped, and the error list is still
+recomputed.
 
 **An invalidation survives the trip.** A field's external failure is kept while it is out, withheld
 from `errors`, and reappears when it comes back. Disabling a field to skip its rules does not erase
@@ -1169,6 +1177,31 @@ settled keeps its `settled` status and announces nothing. An editing form turns 
 `answer`, and emits `abandon` unless the request was deferred behind a mutation batch that settles
 before teardown.
 
+### The submit decision
+
+A `validate` listener can write to the form while a submit is deciding. Four rules say what the
+submit does about it.
+
+**A submit that changes the error list announces before it decides.** Its own evaluation moves that
+list only when a `custom` validator answers differently than it did at the last mutation — every
+other rule reads state that only a mutation changes, and every mutation already recomputed. When it
+does move, `validate` fires, the listeners run, and the submit evaluates once more before deciding.
+That is one further evaluation, not a loop until nothing changes.
+
+**One submit can therefore emit `validate` more than once.** A listener that fills, invalidates,
+disables, or enables announces its own change as it makes it, so a host counting emissions inside one
+submit can see two.
+
+**A refusal is the list checked at the decision, not a view of the form.** An evaluation that already
+failed stays the answer even when a listener then repairs or disables the field that failed. So
+`submit()` can return `{ success: false, error: [...] }` while `form.errors` reads `[]` and `valid`
+reads `true` the line after. The returned result is what the submit decided; the form is what the
+form holds now.
+
+**A settlement made during listener work wins.** A listener that repairs the form and calls `submit`
+itself settles it, and that settlement is what the outer call returns — one `submit` event, one
+resolved `answer`, and no evaluation after it.
+
 ### Retrying a submit
 
 **`submit` is the commit, not the attempt.** It is the moment this document is finished with, which
@@ -1180,7 +1213,9 @@ That gives one sequence, and it is short:
 
 1. **Ask the form the synchronous question.** A submit that fails settles nothing, marks every
    enabled field touched, and leaves `status` at `editing`. Calling it for exactly that is correct
-   and repeatable — sync errors are the case a local failed submit is for.
+   and repeatable — sync errors are the case a local failed submit is for. Read the errors off the
+   returned result rather than off the form: with a `validate` listener that writes, the two can
+   already disagree, as the section above sets out.
 2. **Run the attempt against `values`.** The request is the host's: its own timeout, its own retry
    count, its own backoff. The form is not involved and knows nothing about it.
 3. **Report a refusal through `invalidate`, not through a submit.** The message lands as a
@@ -1231,7 +1266,7 @@ Seven events, and each carries what a listener needs to act without reading the 
 | Event      | Payload                               | Fires                                                                                                                                                                                                                                                                                                          |
 | ---------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `fill`     | the field's `name`, and its new value | Once per field whose answer actually moved, in the order written. The value is `undefined` when the answer was cleared. A `clear` is the exception; see its row.                                                                                                                                               |
-| `validate` | every current `FieldError`            | Whenever the error list's content changes — after a fill, an invalidate, a disable, an enable, a clear, or a submit. Empty when the change was to no errors at all.                                                                                                                                            |
+| `validate` | every current `FieldError`            | Whenever the error list's content changes — after a fill, an invalidate, a disable, an enable, a clear, or a submit. Empty when the change was to no errors at all. One submit can fire it more than once: the submit announces its own change, and a listener that writes announces that change too.          |
 | `disable`  | the field's `name`                    | Once per field taken out of the form, in schema order. A call that moves nothing announces nothing. A `clear` is the exception; see its row.                                                                                                                                                                   |
 | `enable`   | the field's `name`                    | Once per field put back into the form, in schema order. A call that moves nothing announces nothing. A `clear` is the exception; see its row.                                                                                                                                                                  |
 | `submit`   | the submitted `FormValues`            | On the submit that settles the form, and only that one.                                                                                                                                                                                                                                                        |
@@ -1424,17 +1459,17 @@ call signature and no named members.
 
 #### `FormInterface`
 
-| Method       | Returns                    | Behavior                                                                                                    |
-| ------------ | -------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `field`      | `FormField` or `undefined` | Find one field by name; `undefined` when the schema declares no such name.                                  |
-| `fill`       | `void`                     | Answer one field, or several at once. Every answer is checked first, so a refused write changes nothing.    |
-| `touch`      | `void`                     | Record that somebody has visited a field.                                                                   |
-| `invalidate` | `void`                     | Fail a field from outside, for what the rules cannot see. It lasts until the field is filled or cleared.    |
-| `disable`    | `void`                     | Take every field, one field, or a list of fields out of the form. A list is checked before any of it moves. |
-| `enable`     | `void`                     | Put every field, one field, or a list of fields back into the form, with any held invalidation.             |
-| `submit`     | `FormResult`               | Check every answer and settle the form when they all pass; otherwise return every error that stopped them.  |
-| `clear`      | `void`                     | Return every answer to `baseline`, and the runtime disabled overlay to the schema's declarations.           |
-| `destroy`    | `void`                     | Request teardown. Idempotent; an in-flight settlement can win before deferred teardown.                     |
+| Method       | Returns                    | Behavior                                                                                                           |
+| ------------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `field`      | `FormField` or `undefined` | Find one field by name; `undefined` when the schema declares no such name.                                         |
+| `fill`       | `void`                     | Answer one field, or several at once. Every answer is checked first, so a refused write changes nothing.           |
+| `touch`      | `void`                     | Record that somebody has visited a field.                                                                          |
+| `invalidate` | `void`                     | Fail a field from outside, for what the rules cannot see. It lasts until the field is filled or cleared.           |
+| `disable`    | `void`                     | Take every field, one field, or a list of fields out of the form. A list is checked before any of it moves.        |
+| `enable`     | `void`                     | Put every field, one field, or a list of fields back into the form, with any held invalidation.                    |
+| `submit`     | `FormResult`               | Check every answer and settle the form when they all pass; otherwise return the errors it checked when it decided. |
+| `clear`      | `void`                     | Return every answer to `baseline`, and the runtime disabled overlay to the schema's declarations.                  |
+| `destroy`    | `void`                     | Request teardown. Idempotent; an in-flight settlement can win before deferred teardown.                            |
 
 ### Errors
 
@@ -1442,13 +1477,13 @@ call signature and no named members.
 value with `isFormError` and branch on `code`; never match on message text. A custom validator's own
 throw is the caller's exception and escapes unchanged.
 
-| Code        | Raised when                                                                                               |
-| ----------- | --------------------------------------------------------------------------------------------------------- |
-| `SCHEMA`    | The schema is not a form schema, or `auditSchema` found a domain fault. Thrown by the constructor.        |
-| `FIELD`     | A name given to `fill`, `touch`, `invalidate`, `disable`, or `enable` is one the schema does not declare. |
-| `CONTROL`   | A value written or seeded is one its field's control cannot hold.                                         |
-| `SETTLED`   | A write reached a form that has already settled.                                                          |
-| `ABANDONED` | A write reached a form that was destroyed before it settled, or `answer` rejected for that reason.        |
+| Code        | Raised when                                                                                                                                                                                               |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SCHEMA`    | The schema is not a form schema, `auditSchema` found a domain fault, or `cloneFormField` cannot own a field's `meta`. The constructor raises all three, and `cloneFormField` raises the third on its own. |
+| `FIELD`     | A name given to `fill`, `touch`, `invalidate`, `disable`, or `enable` is one the schema does not declare.                                                                                                 |
+| `CONTROL`   | A value written or seeded is one its field's control cannot hold.                                                                                                                                         |
+| `SETTLED`   | A write reached a form that has already settled.                                                                                                                                                          |
+| `ABANDONED` | A write reached a form that was destroyed before it settled, or `answer` rejected for that reason.                                                                                                        |
 
 ```ts
 import { createForm, isFormError } from '@orkestrel/form'
@@ -1506,7 +1541,9 @@ These invariants hold across [`src/core`](../src/core) and this guide.
    content changes. A custom-validator throw escapes mid-evaluation. After a throwing `fill`, the
    form holds the new answers beside the pre-fill errors. A throwing `invalidate` records its
    failure but keeps that stale list. A throwing `clear` resets answers, touched fields, and
-   invalidations but emits no `clear` and leaves the previous errors. There is no `check`.
+   invalidations but emits no `clear` and leaves the previous errors. There is no `check`. A failed
+   `submit` returns the list it checked at the decision, which is a value rather than a view: after a
+   `validate` listener wrote during that submit, `errors` can already differ from it.
 5. **`valid` and `dirty` are derived.** Both are computed on read, from `errors` and from the
    answers against `baseline`, so neither can drift from what the form holds. `baseline` itself is
    fixed when the form opens and never moves again.
@@ -1518,7 +1555,9 @@ These invariants hold across [`src/core`](../src/core) and this guide.
    settlement sets `abandoned`, rejects `answer` with `ABANDONED`, and emits `abandon`. The exception
    is a destroy deferred behind a mutation batch that settles before teardown: the form ends
    `settled`, `answer` resolves, and no `abandon` is emitted. Neither end state is left, and every
-   getter keeps answering in both.
+   getter keeps answering in both. A settlement made by a nested `submit` inside a `validate`
+   listener is that one settlement: the outer call returns it, `submit` still fires once, and nothing
+   is evaluated after it.
 8. **`undefined` is the only absence.** A field is unanswered when `values` holds no key for it, and
    answered otherwise, so `''`, whitespace, `[]`, `false`, and `0` all satisfy `required`. This is
    not HTML's model, which fails `required` on the exact empty string. A binding that wants HTML's
