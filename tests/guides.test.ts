@@ -25,7 +25,9 @@ import { readFileSync } from 'node:fs'
 import { createRecorder, requireValue } from '@orkestrel/test'
 import { readInventory } from '@orkestrel/test/server'
 import type {
+	CheckboxField,
 	ConfirmField,
+	DateField,
 	FieldValidator,
 	FormSchema,
 	NumberField,
@@ -35,7 +37,6 @@ import type {
 import {
 	auditSchema,
 	appliesRule,
-	changedValues,
 	cloneChoices,
 	cloneFormField,
 	cloneFormSchema,
@@ -45,6 +46,7 @@ import {
 	EMAIL_PATTERN,
 	evaluateField,
 	evaluateForm,
+	extractChanges,
 	extractGroups,
 	Form,
 	formatMessage,
@@ -365,11 +367,11 @@ describe('form.md fences', () => {
 	})
 
 	it('refuses a pattern longer than the limit at both gates', () => {
-		const long = {
+		const long: TextField = {
 			control: 'text',
 			name: 'code',
 			rule: { pattern: 'a'.repeat(PATTERN_LIMIT + 1) },
-		} as const
+		}
 
 		expect(PATTERN_LIMIT).toBe(256)
 		expect(auditSchema({ fields: [long] })).toStrictEqual([
@@ -390,7 +392,7 @@ describe('form.md fences', () => {
 			}),
 		).toStrictEqual(['Schema contains a string longer than 65536'])
 
-		const topics: FormSchema['fields'][number] = {
+		const topics: CheckboxField = {
 			control: 'checkbox',
 			name: 't',
 			choices: [{ value: 'a', label: 'A' }],
@@ -430,11 +432,14 @@ describe('form.md fences', () => {
 				],
 			}),
 		).toStrictEqual(['Field "plan" is required but offers no enabled choice'])
+		expect(
+			auditSchema({ fields: [{ control: 'text', name: 'code', rule: { maximum: -1 } }] }),
+		).toStrictEqual(['Field "code" has a negative maximum on text'])
 		expect(auditSchema({ fields: [{ control: 'text', name: 'email' }] })).toStrictEqual([])
 	})
 
 	it('accepts a lexically valid date that no calendar has', () => {
-		const when = { control: 'date', name: 'when' } as const
+		const when: DateField = { control: 'date', name: 'when' }
 
 		expect(matchesField(when, '2026-02-31')).toBe(true)
 		expect(matchesField(when, '2026-13-01')).toBe(false)
@@ -510,7 +515,7 @@ describe('form.md fences', () => {
 		expect(form.errors.length).toBe(1)
 	})
 
-	it('moves a field out of a live form and back, announcing only what moved', () => {
+	it('announces only real moves, and announces a clear reset with clear alone', () => {
 		const moved: string[] = []
 
 		const form = createForm(
@@ -523,6 +528,7 @@ describe('form.md fences', () => {
 			},
 			{
 				on: {
+					fill: (name) => moved.push(`fill ${name}`),
 					disable: (name) => moved.push(`disable ${name}`),
 					enable: (name) => moved.push(`enable ${name}`),
 				},
@@ -557,7 +563,8 @@ describe('form.md fences', () => {
 
 		form.clear()
 		expect(Array.from(form.disabled)).toStrictEqual(['legacy'])
-		expect(moved).toStrictEqual(['disable nickname', 'disable email', 'enable email'])
+		expect(form.values).toStrictEqual({ legacy: 'kept' })
+		expect(moved).toStrictEqual(['disable nickname', 'fill email', 'disable email', 'enable email'])
 	})
 
 	it('replaces the schema declarations with the supplied disabled set', () => {
@@ -601,7 +608,7 @@ describe('form.md fences', () => {
 		form.fill('email', 'ada@example.com')
 		expect(form.valid).toBe(true)
 		expect(form.dirty).toBe(true)
-		expect(Array.from(changedValues(form.values, form.baseline))).toStrictEqual(['email'])
+		expect(Array.from(extractChanges(form.values, form.baseline))).toStrictEqual(['email'])
 
 		form.invalidate('email', 'That address is already registered')
 		expect(form.errors).toStrictEqual([

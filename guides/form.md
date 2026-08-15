@@ -107,8 +107,9 @@ submit).
 
 ### Constants
 
-The control and status registries, the default rule copy, the shipped patterns, and the nine
-budgets. All frozen.
+The control and status registries, the default rule copy, and the shipped patterns — every one of
+them frozen, so a shared `RegExp` cannot be recompiled under a consumer. The nine budgets are
+numbers.
 
 | API                    | Kind  | Summary                                                                                       |
 | ---------------------- | ----- | --------------------------------------------------------------------------------------------- |
@@ -165,7 +166,7 @@ and the wire projection.
 | `evaluateForm`    | function | Every failure the whole schema produces, in schema order then rule order; a disabled field is skipped.   |
 | `computeDefaults` | function | The values a schema explicitly seeds. `password` and `file` declare no default, so neither ever appears. |
 | `matchesValue`    | function | Whether two field values hold the same answer, comparing list values element by element.                 |
-| `changedValues`   | function | The names whose answers differ between two value records, absence included.                              |
+| `extractChanges`  | function | The names whose answers differ between two value records, absence included.                              |
 | `matchesValues`   | function | Whether two answer records hold the same answers, comparing list values element by element.              |
 | `formatMessage`   | function | Resolve one rule's failure text — an override first, then `RULE_MESSAGES` — and substitute `{limit}`.    |
 | `serializeForm`   | function | Project a schema into JSON, dropping every `custom` validator and every absent member.                   |
@@ -178,12 +179,12 @@ Owned frozen snapshots. The form takes one of the schema at construction, so a l
 schema the caller passed changes nothing inside the form, and no list the form hands back is a live
 internal reference.
 
-| API               | Kind     | Summary                                                                             |
-| ----------------- | -------- | ----------------------------------------------------------------------------------- |
-| `cloneValue`      | function | Own one field value — a scalar is returned unchanged, a list becomes a frozen copy. |
-| `cloneChoices`    | function | Own a field's choices as a frozen list of frozen choice records.                    |
-| `cloneFormField`  | function | Own one field, freezing its rule, its choices, and any list-valued default.         |
-| `cloneFormSchema` | function | Own a whole schema, freezing every nested group, field, rule, choice, and list.     |
+| API               | Kind     | Summary                                                                                 |
+| ----------------- | -------- | --------------------------------------------------------------------------------------- |
+| `cloneValue`      | function | Own one field value — a scalar is returned unchanged, a list becomes a frozen copy.     |
+| `cloneChoices`    | function | Own a field's choices as a frozen list of frozen choice records.                        |
+| `cloneFormField`  | function | Own one field, freezing its rule, its choices, its `meta`, and any list-valued default. |
+| `cloneFormSchema` | function | Own a whole schema, freezing every nested group, field, rule, choice, and list.         |
 
 ### Parsers
 
@@ -440,7 +441,10 @@ namespaces what a host put there.
 **It is bounded JSON.** `isFormField` admits it only through `isBoundedJSONRecord`, so a cyclic
 value, a value nested past that guard's depth bound, and anything that is not JSON — a function, a
 symbol — each refuse the whole field. Depth is the guard's job; size is the audit's, and the schema
-budgets below count `meta`'s strings and nodes exactly as they count the schema's own.
+budgets below count `meta`'s strings and nodes. They count it a little more strictly than the
+schema's own: a key inside `meta` counts against the text budget, and the schema's own keys —
+`control`, `name`, `rule` — do not. The stricter side is the one the host controls, which is the
+right way round.
 
 **This package defines no key in it.** Every key belongs to the host, so two hosts can carry
 different vocabularies through the same document and neither collides with the package. A key this
@@ -511,12 +515,13 @@ because seconds are optional, `'09:00'` sorts before `'09:00:00'`.
 
 ```ts
 import { evaluateField, formatMessage } from '@orkestrel/form'
+import type { NumberField } from '@orkestrel/form'
 
-const volume = {
+const volume: NumberField = {
 	control: 'number',
 	name: 'volume',
 	rule: { minimum: 0, maximum: 11, step: 1 },
-} as const
+}
 
 evaluateField(volume, 12, {})
 // [{ field: 'volume', message: 'Must be at most 11', rule: 'maximum' }]
@@ -582,12 +587,12 @@ A validator's own throw escapes the mutation call unchanged; only form-owned ref
 
 ```ts
 import { evaluateField } from '@orkestrel/form'
-import type { FieldValidator } from '@orkestrel/form'
+import type { FieldValidator, PasswordField } from '@orkestrel/form'
 
 const matches: FieldValidator = (value, values) =>
 	value === values.password ? true : 'Both passwords must match'
 
-const again = { control: 'password', name: 'again', rule: { custom: matches } } as const
+const again: PasswordField = { control: 'password', name: 'again', rule: { custom: matches } }
 
 evaluateField(again, 'hunter3', { password: 'hunter2' })
 // [{ field: 'again', message: 'Both passwords must match' }]
@@ -600,12 +605,12 @@ carry a `required` message and this validator's own together, and each one is a 
 
 ```ts
 import { evaluateField } from '@orkestrel/form'
-import type { FieldValidator } from '@orkestrel/form'
+import type { FieldValidator, TextField } from '@orkestrel/form'
 
 const whenBusiness: FieldValidator = (value, values) =>
 	values.account === 'business' && value === undefined ? 'A VAT number is required' : true
 
-const vat = { control: 'text', name: 'vat', rule: { custom: whenBusiness } } as const
+const vat: TextField = { control: 'text', name: 'vat', rule: { custom: whenBusiness } }
 
 evaluateField(vat, undefined, { account: 'business' })
 // [{ field: 'vat', message: 'A VAT number is required' }]
@@ -619,7 +624,7 @@ exported `EMAIL_PATTERN` — the same pattern the `email` rule uses, so the two 
 
 ```ts
 import { evaluateField, EMAIL_PATTERN } from '@orkestrel/form'
-import type { FieldValidator } from '@orkestrel/form'
+import type { FieldValidator, TextField } from '@orkestrel/form'
 
 const addresses: FieldValidator = (value) =>
 	typeof value !== 'string' ||
@@ -630,7 +635,7 @@ const addresses: FieldValidator = (value) =>
 		? true
 		: 'Every address must be valid'
 
-const to = { control: 'text', name: 'to', rule: { custom: addresses } } as const
+const to: TextField = { control: 'text', name: 'to', rule: { custom: addresses } }
 
 evaluateField(to, 'ada@example.com, grace@example.com', {}) // []
 evaluateField(to, 'ada@example.com, nope', {})
@@ -661,12 +666,13 @@ or uncompilable pattern, and decide whether its remaining patterns are trusted b
 
 ```ts
 import { auditSchema, evaluateField, PATTERN_LIMIT } from '@orkestrel/form'
+import type { TextField } from '@orkestrel/form'
 
-const long = {
+const long: TextField = {
 	control: 'text',
 	name: 'code',
 	rule: { pattern: 'a'.repeat(PATTERN_LIMIT + 1) },
-} as const
+}
 
 auditSchema({ fields: [long] })
 // ['Field "code" has a pattern longer than 256']
@@ -712,23 +718,35 @@ The two whole-schema ceilings are what make the arithmetic safe. Whatever the pe
 one audited schema retains at most 1048576 string code units and at most 16384 nodes — roughly two
 megabytes of text — so the worst case is those two numbers, never the product of the others.
 
-Two things stay unbounded on purpose. Regular-expression **time** is not bounded here, exactly as
-Contract 10 states: a source within `PATTERN_LIMIT` can still backtrack catastrophically, and
-evaluating an untrusted pattern spends the caller's thread. And `custom` is in-process code the
-schema's own author wrote, so it is trusted like any other function the host calls; it does not
-cross the wire, and nothing here limits what it does. Refusing an over-budget schema is also not
-free: the audit still walks far enough to name the fault, bounded by `NODE_LIMIT` rather than by the
-size of what arrived.
+Three things stay unbounded, each for its own reason. Regular-expression **time** is not bounded
+here, exactly as Contract 10 states: a source within `PATTERN_LIMIT` can still backtrack
+catastrophically, and evaluating an untrusted pattern spends the caller's thread. And `custom` is
+in-process code the schema's own author wrote, so it is trusted like any other function the host
+calls; it does not cross the wire, and nothing here limits what it does.
+
+The third is the structural **read** at the parse door, and refusing an over-budget schema is where
+it shows. The budgets bound what a schema may **retain**, and they bound how far the audit **walks**
+to name a fault: the field pass stops at `FIELD_LIMIT` and the node pass stops at `NODE_LIMIT`, so a
+fault beyond either ceiling goes unnamed while the breached ceiling itself is reported. They do not
+bound the read that happens before any of that. `parseForm` copies and guards every field that
+arrived before the audit sees one of them, so a payload four times over `FIELD_LIMIT` is read four
+times over and then refused. Bound the size of a payload at the transport that delivers it, which is
+the only layer holding the bytes.
 
 ```ts
 import { auditSchema, matchesField, LIST_LIMIT, STRING_LIMIT } from '@orkestrel/form'
+import type { CheckboxField } from '@orkestrel/form'
 
 auditSchema({ fields: [{ control: 'text', name: 'n'.repeat(129) }] })
 // ['Schema contains a name longer than 128']
 auditSchema({ fields: [{ control: 'text', name: 'a', label: 'x'.repeat(STRING_LIMIT + 1) }] })
 // ['Schema contains a string longer than 65536']
 
-const topics = { control: 'checkbox', name: 't', choices: [{ value: 'a', label: 'A' }] } as const
+const topics: CheckboxField = {
+	control: 'checkbox',
+	name: 't',
+	choices: [{ value: 'a', label: 'A' }],
+}
 
 matchesField(
 	topics,
@@ -741,15 +759,24 @@ matchesField({ control: 'text', name: 'a' }, 'x'.repeat(STRING_LIMIT + 1)) // fa
 
 `auditSchema` is the semantic pass that structural validation cannot do: duplicate names, a missing
 group, a default its own control cannot hold, a rule on a control that cannot measure it, a minimum
-above its maximum, an uncompilable pattern, or a breach of any budget above. It also reports a
-required closed `select` with no enabled choice and a `checkbox` whose positive `minimum` exceeds its
-enabled-choice count. A required `checkbox` alone remains satisfiable because `[]` is a present
-answer.
+above its maximum, an uncompilable pattern, or a breach of any budget above. It also reports three
+bounds no answer could satisfy: a required closed `select` with no enabled choice, a `checkbox` whose
+positive `minimum` exceeds its enabled-choice count, and a negative `maximum` on a control that
+measures a length or a count — `text`, `editor`, `password`, `checkbox`, or `file`. A required
+`checkbox` alone remains satisfiable because `[]` is a present answer, `maximum: 0` on a `text` is
+satisfiable by `''`, and a negative `maximum` on a `number` is an ordinary value bound.
 
-**Both satisfiability faults hold for every field, disabled or not.** A schema is sound when it can
-be answered under **any** runtime disabled set, and `disable`/`enable` mean any declared-disabled
-field can be put back into play at any moment. A field that would be unanswerable the instant it is
-enabled is a fault in the schema, and the audit says so while a schema editor can still fix it.
+**Every one of those faults holds for every field, disabled or not.** `auditSchema` takes the schema
+and nothing else: no satisfiability arm reads `FieldBase.disabled`, and no runtime `disable` or
+`enable` can change a diagnostic. That is why a declared-disabled field earns no exemption — it can
+be put back into play at any moment, so a field that would be unanswerable the instant it is enabled
+is a fault the audit names while a schema editor can still fix it.
+
+**What a passing audit proves is that list and nothing wider.** Each check is a fixed question about
+the schema's own declarations, so a passing schema is free of those faults under every runtime
+disabled set — none of them depends on one. It is not a proof that some answer set exists. `custom`
+is a function, the audit never calls it, and a validator that refuses every value passes the audit
+and fails at evaluation.
 
 The audit runs inside `createForm` and inside `parseForm`, so a consumer rarely calls it directly —
 but it is exported, because a schema editor wants the diagnostics before it constructs anything.
@@ -783,6 +810,8 @@ auditSchema({
 	],
 })
 // ['Field "plan" is required but offers no enabled choice'] — a declared-disabled field is no exemption
+auditSchema({ fields: [{ control: 'text', name: 'code', rule: { maximum: -1 } }] })
+// ['Field "code" has a negative maximum on text'] — no answer has a negative length
 auditSchema({ fields: [{ control: 'text', name: 'email' }] }) // []
 ```
 
@@ -800,8 +829,9 @@ in.
 
 ```ts
 import { matchesField } from '@orkestrel/form'
+import type { DateField } from '@orkestrel/form'
 
-const when = { control: 'date', name: 'when' } as const
+const when: DateField = { control: 'date', name: 'when' }
 
 matchesField(when, '2026-02-31') // true — lexically valid, no calendar is consulted
 matchesField(when, '2026-13-01') // false — month 13 is not spelled correctly
@@ -943,7 +973,8 @@ moves, so one unknown name throws `FormError` coded `FIELD` and the call changes
 
 **Each announces only what moved.** `disable` and `enable` each fire once per field whose effective
 state actually changed, in the order the schema declares the fields. A call that moves nothing —
-disabling what is already out — announces nothing at all.
+disabling what is already out — announces nothing, recomputes nothing, and returns having written
+nothing, exactly as a `fill` with an unchanged answer does.
 
 **An invalidation survives the trip.** A field's external failure is kept while it is out, withheld
 from `errors`, and reappears when it comes back. Disabling a field to skip its rules does not erase
@@ -951,11 +982,15 @@ what a server told you about it.
 
 **`clear` resets the overlay.** Clearing returns the form to how it opened, and the runtime decisions
 are part of that: `disabled` reads the schema's declarations again, beside the restored answers and
-the cleared `touched` set.
+the cleared `touched` set. **The `clear` event is the whole announcement of that reset**: the
+restored answers emit no `fill`, and the overlay reset emits no `disable` and no `enable`. A listener
+that maintains its own picture from events alone reads one `clear` as everything having gone back,
+rather than waiting for per-field news that never comes.
 
 Both are writes, so a settled or abandoned form refuses them with `SETTLED` or `ABANDONED`. And
 because any declared-disabled field can be enabled at any moment, `auditSchema` holds every field to
-the same satisfiability standard whether it is declared disabled or not.
+the same satisfiability standard whether it is declared disabled or not: it reads the schema alone,
+so no declaration and no runtime decision changes a diagnostic.
 
 ```ts
 import { createForm } from '@orkestrel/form'
@@ -972,6 +1007,7 @@ const form = createForm(
 	},
 	{
 		on: {
+			fill: (name) => moved.push(`fill ${name}`),
 			disable: (name) => moved.push(`disable ${name}`),
 			enable: (name) => moved.push(`enable ${name}`),
 		},
@@ -1004,7 +1040,8 @@ form.disabled.has('email') // false
 
 form.clear()
 Array.from(form.disabled) // ['legacy'] — back to the declaration
-moved // ['disable nickname', 'disable email', 'enable email'] — schema order, only real moves
+form.values // { legacy: 'kept' } — and the answers went back with it
+moved // ['disable nickname', 'fill email', 'disable email', 'enable email'] — `clear` added nothing
 ```
 
 The same set travels to the pure helpers. `evaluateForm` takes `EvaluationOptions`, whose `disabled`
@@ -1040,13 +1077,13 @@ the failure lasts until that field is filled again or the form is cleared.
 `baseline` is those opening answers, held as a value: the schema's defaults overlaid with any seeded
 `values`, fixed when the form opens and never moved again. It is what `dirty` measures against and
 what `clear` returns to, so a host that wants to know _which_ answers moved — not merely that one
-did — reads `changedValues(form.values, form.baseline)` and gets the names.
+did — reads `extractChanges(form.values, form.baseline)` and gets the names.
 
 `clear` returns every answer to `baseline`. It also clears `touched`, every external failure, and
 every runtime `disable` or `enable`, so the form reads exactly as it opened.
 
 ```ts
-import { changedValues, createForm } from '@orkestrel/form'
+import { createForm, extractChanges } from '@orkestrel/form'
 
 const form = createForm({
 	fields: [
@@ -1065,7 +1102,7 @@ form.baseline // { plan: 'free' } — the answers it opened with, fixed for its 
 form.fill('email', 'ada@example.com')
 form.valid // true
 form.dirty // true
-Array.from(changedValues(form.values, form.baseline)) // ['email'] — which answer moved, by name
+Array.from(extractChanges(form.values, form.baseline)) // ['email'] — which answer moved, by name
 
 form.invalidate('email', 'That address is already registered')
 form.errors // [{ field: 'email', message: 'That address is already registered' }]
@@ -1191,15 +1228,15 @@ form.status // 'settled'
 
 Seven events, and each carries what a listener needs to act without reading the form back.
 
-| Event      | Payload                               | Fires                                                                                                                                                                   |
-| ---------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fill`     | the field's `name`, and its new value | Once per field whose answer actually moved, in the order written. The value is `undefined` when the answer was cleared.                                                 |
-| `validate` | every current `FieldError`            | Whenever the error list's content changes — after a fill, an invalidate, a disable, an enable, a clear, or a submit. Empty when the change was to no errors at all.     |
-| `disable`  | the field's `name`                    | Once per field taken out of the form, in schema order. A call that moves nothing announces nothing.                                                                     |
-| `enable`   | the field's `name`                    | Once per field put back into the form, in schema order. A call that moves nothing announces nothing.                                                                    |
-| `submit`   | the submitted `FormValues`            | On the submit that settles the form, and only that one.                                                                                                                 |
-| `clear`    | nothing                               | On a completed `clear`, before any `validate` it caused. A custom-validator throw during reevaluation resets state but emits no `clear` and leaves the previous errors. |
-| `abandon`  | nothing                               | On the `destroy` that abandons an unsettled form. Never on a settled one.                                                                                               |
+| Event      | Payload                               | Fires                                                                                                                                                                                                                                                                                                          |
+| ---------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fill`     | the field's `name`, and its new value | Once per field whose answer actually moved, in the order written. The value is `undefined` when the answer was cleared. A `clear` is the exception; see its row.                                                                                                                                               |
+| `validate` | every current `FieldError`            | Whenever the error list's content changes — after a fill, an invalidate, a disable, an enable, a clear, or a submit. Empty when the change was to no errors at all.                                                                                                                                            |
+| `disable`  | the field's `name`                    | Once per field taken out of the form, in schema order. A call that moves nothing announces nothing. A `clear` is the exception; see its row.                                                                                                                                                                   |
+| `enable`   | the field's `name`                    | Once per field put back into the form, in schema order. A call that moves nothing announces nothing. A `clear` is the exception; see its row.                                                                                                                                                                  |
+| `submit`   | the submitted `FormValues`            | On the submit that settles the form, and only that one.                                                                                                                                                                                                                                                        |
+| `clear`    | nothing                               | On a completed `clear`, before any `validate` it caused. `clear` is the whole announcement of the reset: restored answers emit no `fill`, and the overlay reset emits no `disable` or `enable`. A custom-validator throw during reevaluation resets state but emits no `clear` and leaves the previous errors. |
+| `abandon`  | nothing                               | On the `destroy` that abandons an unsettled form. Never on a settled one.                                                                                                                                                                                                                                      |
 
 Wire listeners at construction through `FormOptions.on`, or afterwards through the `emitter`. Both
 reach the same typed emitter, and a listener that throws is isolated and reported to
@@ -1493,8 +1530,11 @@ These invariants hold across [`src/core`](../src/core) and this guide.
    `FormInterface.disabled` is the current fact: `disable` and `enable` move a field either way,
    each announcing once per field that actually moved in schema order, an invalidation is held
    while its field is out and restored when it returns, and `clear` resets the overlay to the
-   declarations. `auditSchema` therefore holds every field to the same satisfiability standard,
-   disabled or not: a schema must be answerable under any runtime disabled set.
+   declarations — announcing that reset with `clear` alone, never with a per-field `disable` or
+   `enable`. `auditSchema` therefore holds every field to the same satisfiability standard,
+   disabled or not: it reads the schema alone, so no declaration and no runtime set changes a
+   diagnostic, and a passing schema carries none of the faults it enumerates whatever is disabled
+   at runtime. It claims nothing beyond that list, and `custom` is outside it.
 10. **Guards are total and parsers refuse.** No `is*` throws for any input — hostile prototype,
     symbol key, cycle, or depth. No `parse*` throws; each returns `undefined` on refusal. A
     guard-valid value is never refused by its parser, and every parsed result satisfies its guard.
@@ -1506,7 +1546,9 @@ These invariants hold across [`src/core`](../src/core) and this guide.
     a value breaching `STRING_LIMIT` or `LIST_LIMIT` before any regular expression sees it, so
     `fill` and a seeded value throw `CONTROL` and the parsers return `undefined`. `TEXT_LIMIT` and
     `NODE_LIMIT` are whole-schema ceilings, `meta` included, so the per-item limits never multiply.
-    Regular-expression time and a `custom` validator's own work stay unbounded.
+    They bound retention and the audit's own walk, never the structural read at the parse door,
+    which is the transport's to bound. Regular-expression time and a `custom` validator's own work
+    stay unbounded too.
 12. **Only data crosses the wire.** `serializeForm` drops every `custom` validator on the way out
     and `parseForm` drops every `custom` member on the way in, so no function crosses in either
     direction. Everything that does cross survives the round trip exactly, `meta` verbatim key for
@@ -1571,7 +1613,7 @@ next change knows what it is reopening. `Layer` names who owns the concept, and 
   paths through the entity.
 - [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) — `matchesField`,
   `matchesAnswer`, `appliesRule`, `evaluateField`, `evaluateForm`, `computeDefaults`,
-  `matchesValue`, `changedValues`, `matchesValues`, `formatMessage`, `serializeForm`,
+  `matchesValue`, `extractChanges`, `matchesValues`, `formatMessage`, `serializeForm`,
   `extractGroups`, `auditSchema`, the budgets, and the control-by-rule matrix.
 - [`tests/src/core/validators.test.ts`](../tests/src/core/validators.test.ts) — every guard against
   valid, off-shape, and hostile input, plus guard/parser soundness in both directions.

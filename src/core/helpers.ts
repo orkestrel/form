@@ -486,7 +486,7 @@ export function matchesValue(a: FieldValue, b: FieldValue): boolean {
 }
 
 /**
- * Snapshot the names whose answers differ between two form value records.
+ * Extract the names whose answers differ between two form value records.
  *
  * @remarks
  * Presence is compared in both directions before present values are compared through
@@ -497,7 +497,7 @@ export function matchesValue(a: FieldValue, b: FieldValue): boolean {
  * @param opened - The values held when the form opened.
  * @returns A readonly snapshot of changed field names.
  */
-export function changedValues(current: FormValues, opened: FormValues): ReadonlySet<string> {
+export function extractChanges(current: FormValues, opened: FormValues): ReadonlySet<string> {
 	const names = new Set([...Object.keys(current), ...Object.keys(opened)])
 	const changed = new Set<string>()
 
@@ -526,7 +526,7 @@ export function changedValues(current: FormValues, opened: FormValues): Readonly
  * @returns Whether both records contain the same answers.
  */
 export function matchesValues(a: FormValues, b: FormValues): boolean {
-	return changedValues(a, b).size === 0
+	return extractChanges(a, b).size === 0
 }
 
 /**

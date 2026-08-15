@@ -20,10 +20,10 @@ import {
 	TEXT_LIMIT,
 	appliesRule,
 	auditSchema,
-	changedValues,
 	computeDefaults,
 	evaluateField,
 	evaluateForm,
+	extractChanges,
 	extractGroups,
 	formatMessage,
 	matchesAnswer,
@@ -662,16 +662,16 @@ describe('form helpers', () => {
 		for (const entry of ANSWER_CASES) expect(matchesAnswer(entry.value)).toBe(entry.answer)
 	})
 
-	it('snapshots changed names with absence-aware value comparison', () => {
+	it('extracts changed names with absence-aware value comparison', () => {
 		for (const entry of CHANGED_CASES) {
-			expect([...changedValues(entry.current, entry.opened)]).toStrictEqual(entry.names)
+			expect([...extractChanges(entry.current, entry.opened)]).toStrictEqual(entry.names)
 		}
 
 		const values: FormValues = { answer: ['one'] }
-		const changed = changedValues(values, values)
+		const changed = extractChanges(values, values)
 
 		expect(changed).toEqual(new Set())
-		expect(changed).not.toBe(changedValues(values, values))
+		expect(changed).not.toBe(extractChanges(values, values))
 	})
 
 	it('compares one field value by scalar identity or ordered list content', () => {
