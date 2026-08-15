@@ -5,6 +5,9 @@ controls, the answers given against it, declarative validation carried as data, 
 settles exactly once. A terminal prompt and a browser form ask the same thing in different places,
 so this package ships what they share and neither renders nor reads input itself. Its `answer`
 promise is the parking seam a server needs: hand the document out, wait, receive the answers back.
+A live form can take a field out and put it back with `disable` and `enable`, and nine exported
+budgets bound what one schema and its answers may retain, so a document that arrives from a wire
+costs a known maximum before anything decides to trust it.
 Built on `@orkestrel/contract` and `@orkestrel/emitter`.
 
 ## Install
@@ -55,9 +58,10 @@ await parked // { email: 'ada@example.com', secret: 'correct horse battery', ter
 ## Guide
 
 See [guides/form.md](./guides/form.md) for the documented surface — the twelve controls and their
-value shapes, the rule table and the custom cross-field seam, the lifecycle and its five events, the
-serialize/parse wire boundary, and the concept inventory of what this package deliberately leaves
-out.
+value shapes, the rule table and the custom cross-field seam, the presence model behind `required`,
+the lifecycle and its seven events, taking a field out of a live form with `disable` and `enable`,
+the budgets that bound what a schema and its answers may retain, the serialize/parse wire boundary,
+and the concept inventory of what this package leaves to the layer above.
 
 ## Package
 
