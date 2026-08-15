@@ -1,5 +1,6 @@
 import type { FormSchema } from '@src/core'
 import {
+	STRING_LIMIT,
 	isFieldChoice,
 	isFieldControl,
 	isFieldError,
@@ -10,6 +11,7 @@ import {
 	isFormSchema,
 	isFormStatus,
 	isFormValues,
+	matchesField,
 } from '@src/core'
 import { parseForm } from '@src/core'
 import { describe, expect, it } from 'vitest'
@@ -34,30 +36,33 @@ describe('structural guards', () => {
 	})
 
 	it('checks every field control own members', () => {
+		const meta = { renderer: { tone: 'quiet' } }
 		const fields: readonly unknown[] = [
-			{ control: 'text', name: 'text', default: '', placeholder: 'Answer' },
-			{ control: 'editor', name: 'editor', default: 'Copy', placeholder: 'Answer' },
-			{ control: 'password', name: 'password', mask: '*' },
-			{ control: 'number', name: 'number', default: 2, placeholder: '0' },
-			{ control: 'date', name: 'date', default: '2026-08-15' },
-			{ control: 'time', name: 'time', default: '09:30' },
-			{ control: 'datetime', name: 'datetime', default: '2026-08-15T09:30' },
-			{ control: 'color', name: 'color', default: '#336699' },
-			{ control: 'confirm', name: 'confirm', default: false },
+			{ control: 'text', name: 'text', default: '', placeholder: 'Answer', meta },
+			{ control: 'editor', name: 'editor', default: 'Copy', placeholder: 'Answer', meta },
+			{ control: 'password', name: 'password', mask: '*', meta },
+			{ control: 'number', name: 'number', default: 2, placeholder: '0', meta },
+			{ control: 'date', name: 'date', default: '2026-08-15', meta },
+			{ control: 'time', name: 'time', default: '09:30', meta },
+			{ control: 'datetime', name: 'datetime', default: '2026-08-15T09:30', meta },
+			{ control: 'color', name: 'color', default: '#336699', meta },
+			{ control: 'confirm', name: 'confirm', default: false, meta },
 			{
 				control: 'select',
 				name: 'select',
 				choices: [{ value: 'one', label: 'One' }],
 				default: 'one',
 				open: true,
+				meta,
 			},
 			{
 				control: 'checkbox',
 				name: 'checkbox',
 				choices: [{ value: 'one', label: 'One' }],
 				default: ['one'],
+				meta,
 			},
-			{ control: 'file', name: 'file', accept: ['image/png'], multiple: true },
+			{ control: 'file', name: 'file', accept: ['image/png'], multiple: true, meta },
 		]
 
 		expect(fields.every((field) => isFormField(field))).toBe(true)
@@ -70,14 +75,28 @@ describe('structural guards', () => {
 
 	it('rejects unknown keys at every fixed record level', () => {
 		expect(isFieldChoice({ value: 'one', label: 'One', extra: true })).toBe(false)
+		expect(isFieldChoice({ value: 'one', label: 'One', meta: {} })).toBe(false)
 		expect(isFieldRule({ required: true, extra: true })).toBe(false)
 		expect(isFieldRule({ required: undefined })).toBe(false)
 		expect(isFormField({ control: 'text', name: 'name', extra: true })).toBe(false)
 		expect(isFormField({ control: 'text', name: 'name', label: undefined })).toBe(false)
+		expect(isFormField({ control: 'text', name: 'name', meta: [] })).toBe(false)
+		expect(isFormField({ control: 'text', name: 'name', meta: { invalid: Number.NaN } })).toBe(
+			false,
+		)
 		expect(isFormField({ control: 'password', name: 'secret', default: 'written' })).toBe(false)
 		expect(isFormGroup({ name: 'account', label: 'Account', extra: true })).toBe(false)
+		expect(isFormGroup({ name: 'account', label: 'Account', meta: {} })).toBe(false)
 		expect(isFormSchema({ fields: [], extra: true })).toBe(false)
 		expect(isFieldError({ field: 'name', message: 'Required', extra: true })).toBe(false)
+	})
+
+	it('keeps value guards budget-free while control matching enforces the string ceiling', () => {
+		const value = 'x'.repeat(STRING_LIMIT + 1)
+
+		expect(isFieldValue(value)).toBe(true)
+		expect(isFormValues({ answer: value })).toBe(true)
+		expect(matchesField({ control: 'text', name: 'answer' }, value)).toBe(false)
 	})
 
 	it('is total for cycles, throwing property reads, and null-prototype records', () => {

@@ -1,8 +1,12 @@
 import type { FieldRule, FormField, FormInterface, FormSchema, FormValues } from '@src/core'
+import { GUARD_DEPTH_LIMIT } from '@orkestrel/contract'
 import {
 	Form,
+	LIST_LIMIT,
+	STRING_LIMIT,
 	auditSchema,
 	isFormError,
+	isFormSchema,
 	parseForm,
 	parseValue,
 	parseValues,
@@ -86,6 +90,44 @@ describe('parseValue', () => {
 		expect(parseValue(open, 'two')).toBe('two')
 		expect(parseValue(checkbox, ['one', 'one'])).toBeUndefined()
 		expect(parseValue({ control: 'text', name: 'text' }, 2)).toBeUndefined()
+	})
+
+	it('enforces numeric-string and list ceilings at their exact parser boundaries', () => {
+		const number: FormField = { control: 'number', name: 'number' }
+		const choices = Array.from({ length: LIST_LIMIT }, (_, index) => ({
+			value: String(index),
+			label: String(index),
+		}))
+		const checkbox: FormField = { control: 'checkbox', name: 'choices', choices }
+		const values = choices.map((choice) => choice.value)
+		const overflow = [...values, 'overflow']
+		const schema: FormSchema = { fields: [number, checkbox] }
+		const numeric = `${'0'.repeat(STRING_LIMIT - 1)}1`
+		const oversized = `${'0'.repeat(STRING_LIMIT)}1`
+		let reads = 0
+		const observed = { value: 'one', label: 'One' }
+		Object.defineProperty(observed, 'disabled', {
+			get: () => {
+				reads += 1
+				return false
+			},
+			enumerable: true,
+		})
+		const guarded: FormField = { control: 'checkbox', name: 'guarded', choices: [observed] }
+		const tooMany = Array.from({ length: LIST_LIMIT + 1 }, () => 'one')
+
+		expect(parseValue(number, numeric)).toBe(1)
+		expect(parseValue(number, oversized)).toBeUndefined()
+		expect(parseValue(checkbox, values)).toStrictEqual(values)
+		expect(parseValue(checkbox, overflow)).toBeUndefined()
+		expect(parseValue(guarded, tooMany)).toBeUndefined()
+		expect(reads).toBe(0)
+		expect(parseValues(schema, { number: numeric, choices: values })).toStrictEqual({
+			number: 1,
+			choices: values,
+		})
+		expect(parseValues(schema, { number: oversized, choices: values })).toBeUndefined()
+		expect(parseValues(schema, { number: numeric, choices: overflow })).toBeUndefined()
 	})
 })
 
@@ -202,6 +244,63 @@ describe('parseForm', () => {
 		expect(parseForm(cyclic)).toBeUndefined()
 		expect(() => parseForm(hostile)).not.toThrow()
 		expect(parseForm(hostile)).toBeUndefined()
+	})
+
+	it('round-trips bounded metadata and owns prototype-looking keys', () => {
+		const schema: FormSchema = {
+			fields: [
+				{
+					control: 'text',
+					name: 'name',
+					meta: {
+						renderer: { component: 'input', options: ['compact', 'labelled'] },
+					},
+				},
+			],
+		}
+		const wire: unknown = JSON.parse(JSON.stringify(serializeForm(schema)))
+		const parsed = parseForm(wire)
+
+		expect(parsed).toEqual(schema)
+		expect(isFormSchema(parsed)).toBe(true)
+		expect(auditSchema(parsed ?? { fields: [] })).toStrictEqual([])
+
+		const prototypeWire: unknown = JSON.parse(
+			'{"fields":[{"control":"text","name":"name","meta":{"__proto__":{"polluted":true}}}]}',
+		)
+		const prototypeParsed = parseForm(prototypeWire)
+		const meta = prototypeParsed?.fields[0]?.meta
+
+		expect(meta).toBeDefined()
+		expect(Object.getPrototypeOf(meta)).toBeNull()
+		expect(Object.hasOwn(meta ?? {}, '__proto__')).toBe(true)
+		expect(meta?.__proto__).toEqual({ polluted: true })
+		expect(Object.getPrototypeOf(meta?.__proto__ ?? {})).toBeNull()
+	})
+
+	it('refuses metadata that is invalid or exceeds its retained budgets', () => {
+		const cycle: Record<string, unknown> = {}
+		cycle.self = cycle
+		const deep: Record<string, unknown> = {}
+		let current = deep
+		for (let index = 0; index <= GUARD_DEPTH_LIMIT; index += 1) {
+			const next: Record<string, unknown> = {}
+			current.next = next
+			current = next
+		}
+		const symbol = { visible: true }
+		Object.defineProperty(symbol, Symbol('hidden'), { value: true, enumerable: true })
+		const cases: readonly unknown[] = [
+			{ oversized: 'x'.repeat(STRING_LIMIT + 1) },
+			{ invalid: Number.NaN },
+			cycle,
+			deep,
+			symbol,
+		]
+
+		for (const meta of cases) {
+			expect(parseForm({ fields: [{ control: 'text', name: 'name', meta }] })).toBeUndefined()
+		}
 	})
 })
 

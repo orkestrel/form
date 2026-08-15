@@ -1,5 +1,6 @@
+import type { JSONRecord } from '@orkestrel/contract'
 import type { FieldChoice, FieldRule, FieldValue, FormField, FormSchema } from './types.js'
-import { isArray } from '@orkestrel/contract'
+import { cloneJSONRecord, isArray } from '@orkestrel/contract'
 
 /**
  * Clone one form value into an owned frozen snapshot.
@@ -32,14 +33,17 @@ export function cloneChoices(choices: readonly FieldChoice[]): readonly FieldCho
 export function cloneFormField(field: FormField): FormField {
 	const rule: { rule?: Readonly<FieldRule> } =
 		field.rule === undefined ? {} : { rule: Object.freeze({ ...field.rule }) }
+	const meta: { meta?: JSONRecord } =
+		field.meta === undefined ? {} : { meta: cloneJSONRecord(field.meta) }
 
 	switch (field.control) {
 		case 'select':
-			return Object.freeze({ ...field, ...rule, choices: cloneChoices(field.choices) })
+			return Object.freeze({ ...field, ...rule, ...meta, choices: cloneChoices(field.choices) })
 		case 'checkbox':
 			return Object.freeze({
 				...field,
 				...rule,
+				...meta,
 				choices: cloneChoices(field.choices),
 				...(field.default === undefined ? {} : { default: cloneValue(field.default) }),
 			})
@@ -47,6 +51,7 @@ export function cloneFormField(field: FormField): FormField {
 			return Object.freeze({
 				...field,
 				...rule,
+				...meta,
 				...(field.accept === undefined ? {} : { accept: cloneValue(field.accept) }),
 			})
 		case 'text':
@@ -58,7 +63,7 @@ export function cloneFormField(field: FormField): FormField {
 		case 'datetime':
 		case 'color':
 		case 'confirm':
-			return Object.freeze({ ...field, ...rule })
+			return Object.freeze({ ...field, ...rule, ...meta })
 	}
 }
 

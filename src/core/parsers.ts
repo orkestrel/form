@@ -8,6 +8,7 @@ import {
 	readArrayEntries,
 } from '@orkestrel/contract'
 import { cloneValue } from './cloners.js'
+import { STRING_LIMIT } from './constants.js'
 import { auditSchema, matchesField, serializeForm } from './helpers.js'
 import { isFormSchema } from './validators.js'
 
@@ -97,7 +98,11 @@ export function parseForm(input: unknown): FormSchema | undefined {
 export function parseValue(field: FormField, input: unknown): FieldValue | undefined {
 	const outcome = attempt(() => {
 		if (matchesField(field, input)) return cloneValue(input)
-		if (field.control === 'number') return parseNumber(input)
+		if (field.control === 'number') {
+			if (isString(input) && input.length > STRING_LIMIT) return undefined
+			const value = parseNumber(input)
+			return value !== undefined && matchesField(field, value) ? value : undefined
+		}
 		if (field.control === 'confirm') {
 			if (input === 'true') return true
 			if (input === 'false') return false

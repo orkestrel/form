@@ -14,6 +14,7 @@ import {
 	arrayOf,
 	attempt,
 	isBoolean,
+	isBoundedJSONRecord,
 	isFiniteNumber,
 	isFunction,
 	isRecord,
@@ -133,6 +134,7 @@ export function isFormField(input: unknown): input is FormField {
 						'disabled',
 						'locked',
 						'rule',
+						'meta',
 						'default',
 						'placeholder',
 					].includes(key)
@@ -147,6 +149,7 @@ export function isFormField(input: unknown): input is FormField {
 						'disabled',
 						'locked',
 						'rule',
+						'meta',
 						'mask',
 					].includes(key)
 				case 'number':
@@ -160,6 +163,7 @@ export function isFormField(input: unknown): input is FormField {
 						'disabled',
 						'locked',
 						'rule',
+						'meta',
 						'default',
 						'placeholder',
 					].includes(key)
@@ -178,6 +182,7 @@ export function isFormField(input: unknown): input is FormField {
 						'disabled',
 						'locked',
 						'rule',
+						'meta',
 						'default',
 					].includes(key)
 				case 'select':
@@ -191,6 +196,7 @@ export function isFormField(input: unknown): input is FormField {
 						'disabled',
 						'locked',
 						'rule',
+						'meta',
 						'choices',
 						'default',
 						'open',
@@ -206,6 +212,7 @@ export function isFormField(input: unknown): input is FormField {
 						'disabled',
 						'locked',
 						'rule',
+						'meta',
 						'choices',
 						'default',
 					].includes(key)
@@ -220,6 +227,7 @@ export function isFormField(input: unknown): input is FormField {
 						'disabled',
 						'locked',
 						'rule',
+						'meta',
 						'accept',
 						'multiple',
 					].includes(key)
@@ -243,6 +251,8 @@ export function isFormField(input: unknown): input is FormField {
 		const locked = hasLocked ? input.locked : undefined
 		const hasRule = Object.hasOwn(input, 'rule')
 		const rule = hasRule ? input.rule : undefined
+		const hasMeta = Object.hasOwn(input, 'meta')
+		const meta = hasMeta ? input.meta : undefined
 
 		if (
 			!isString(name) ||
@@ -252,7 +262,8 @@ export function isFormField(input: unknown): input is FormField {
 			(hasHidden && !isBoolean(hidden)) ||
 			(hasDisabled && !isBoolean(disabled)) ||
 			(hasLocked && !isBoolean(locked)) ||
-			(hasRule && !isFieldRule(rule))
+			(hasRule && !isFieldRule(rule)) ||
+			(meta !== undefined && !isBoundedJSONRecord(meta))
 		) {
 			return false
 		}
