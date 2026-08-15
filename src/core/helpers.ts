@@ -1,5 +1,6 @@
 import type { JSONRecord, JSONValue } from '@orkestrel/contract'
 import type {
+	EvaluationOptions,
 	FieldError,
 	FieldControl,
 	FieldRuleName,
@@ -16,19 +17,29 @@ import {
 	isBoolean,
 	isFiniteNumber,
 	isInteger,
+	isRecord,
 	isString,
+	readArrayEntries,
 } from '@orkestrel/contract'
 import { cloneValue } from './cloners.js'
 import {
 	ALPHANUMERIC_PATTERN,
+	CHOICE_LIMIT,
 	COLOR_PATTERN,
 	DATE_PATTERN,
 	DATETIME_PATTERN,
 	EMAIL_PATTERN,
 	FIELD_CONTROLS,
+	FIELD_LIMIT,
+	GROUP_LIMIT,
 	INTEGER_PATTERN,
+	LIST_LIMIT,
+	NAME_LIMIT,
+	NODE_LIMIT,
 	PATTERN_LIMIT,
 	RULE_MESSAGES,
+	STRING_LIMIT,
+	TEXT_LIMIT,
 	TIME_PATTERN,
 	URL_PATTERN,
 } from './constants.js'
@@ -41,6 +52,20 @@ import {
  * @returns Whether the control can hold the value.
  */
 export function matchesField(field: FormField, value: unknown): value is FieldValue {
+	if (isString(value) && value.length > STRING_LIMIT) return false
+
+	let entries: readonly unknown[] | undefined
+	if (isArray(value)) {
+		const length = attempt(() => value.length)
+		if (!length.success || length.value > LIST_LIMIT) return false
+
+		const read = readArrayEntries(value)
+		if (!read.success || !read.value.dense) return false
+
+		entries = read.value.entries
+		if (entries.some((entry) => !isString(entry) || entry.length > STRING_LIMIT)) return false
+	}
+
 	switch (field.control) {
 		case 'text':
 		case 'editor':
@@ -67,21 +92,33 @@ export function matchesField(field: FormField, value: unknown): value is FieldVa
 			)
 		case 'checkbox':
 			return (
-				isArray(value) &&
-				value.every(
+				entries !== undefined &&
+				entries.every(
 					(entry) =>
 						isString(entry) &&
 						field.choices.some((choice) => choice.value === entry && choice.disabled !== true),
 				) &&
-				new Set(value).size === value.length
+				new Set(entries).size === entries.length
 			)
 		case 'file':
-			return (
-				isArray(value) &&
-				value.every((entry) => isString(entry)) &&
-				(field.multiple === true || value.length <= 1)
-			)
+			return entries !== undefined && (field.multiple === true || entries.length <= 1)
 	}
+}
+
+/**
+ * Decide whether a raw binding value projects to an answered field.
+ *
+ * @remarks
+ * Bind with `fill(name, matchesAnswer(raw) ? raw : undefined)`. This projection treats an absent
+ * value and a string containing only whitespace as unanswered. Every other field value is an
+ * answer, including an empty list, `false`, and zero. Core evaluation does not use this projection:
+ * its `required` rule remains presence-only.
+ *
+ * @param value - The raw field value, or absence.
+ * @returns Whether the binding should preserve the value as an answer.
+ */
+export function matchesAnswer(value: FieldValue | undefined): boolean {
+	return value !== undefined && (!isString(value) || value.trim().length > 0)
 }
 
 /**
@@ -151,7 +188,6 @@ export function evaluateField(
 				}),
 			)
 		}
-		return Object.freeze(errors)
 	}
 
 	if (rule === undefined) return Object.freeze(errors)
@@ -329,6 +365,7 @@ export function evaluateField(
 	}
 
 	if (
+		value !== undefined &&
 		field.control === 'number' &&
 		rule.integer === true &&
 		appliesRule(field.control, 'integer') &&
@@ -357,20 +394,23 @@ export function evaluateField(
  *
  * @param schema - The form schema to evaluate.
  * @param values - The values keyed by field name.
- * @param messages - Optional rule-specific message replacements.
+ * @param options - Optional message replacements and the effective disabled field set.
  * @returns Every field failure in schema and rule order.
  */
 export function evaluateForm(
 	schema: FormSchema,
 	values: FormValues,
-	messages?: Readonly<Partial<Record<FieldRuleName, string>>>,
+	options?: EvaluationOptions,
 ): readonly FieldError[] {
 	const errors: FieldError[] = []
 
 	for (const field of schema.fields) {
-		if (field.disabled !== true) {
+		const active =
+			options?.disabled === undefined ? field.disabled !== true : !options.disabled.has(field.name)
+
+		if (active) {
 			const value = Object.hasOwn(values, field.name) ? values[field.name] : undefined
-			errors.push(...evaluateField(field, value, values, messages))
+			errors.push(...evaluateField(field, value, values, options?.messages))
 		}
 	}
 
@@ -446,6 +486,39 @@ export function matchesValue(a: FieldValue, b: FieldValue): boolean {
 }
 
 /**
+ * Snapshot the names whose answers differ between two form value records.
+ *
+ * @remarks
+ * Presence is compared in both directions before present values are compared through
+ * {@link matchesValue}. The returned set is a new snapshot, exposed as readonly because later
+ * changes to either input never alter its membership.
+ *
+ * @param current - The values held now.
+ * @param opened - The values held when the form opened.
+ * @returns A readonly snapshot of changed field names.
+ */
+export function changedValues(current: FormValues, opened: FormValues): ReadonlySet<string> {
+	const names = new Set([...Object.keys(current), ...Object.keys(opened)])
+	const changed = new Set<string>()
+
+	for (const name of names) {
+		const hasCurrent = Object.hasOwn(current, name)
+		const hasOpened = Object.hasOwn(opened, name)
+
+		if (hasCurrent !== hasOpened) {
+			changed.add(name)
+			continue
+		}
+
+		const now = current[name]
+		const before = opened[name]
+		if (now === undefined || before === undefined || !matchesValue(now, before)) changed.add(name)
+	}
+
+	return changed
+}
+
+/**
  * Compare two form value records by keys and value content.
  *
  * @param a - The first value record.
@@ -453,19 +526,7 @@ export function matchesValue(a: FieldValue, b: FieldValue): boolean {
  * @returns Whether both records contain the same answers.
  */
 export function matchesValues(a: FormValues, b: FormValues): boolean {
-	const keys = Object.keys(a)
-
-	if (keys.length !== Object.keys(b).length) return false
-
-	return keys.every((key) => {
-		if (!Object.hasOwn(a, key) || !Object.hasOwn(b, key)) return false
-
-		const left = a[key]
-		const right = b[key]
-		if (left === undefined || right === undefined) return false
-
-		return matchesValue(left, right)
-	})
+	return changedValues(a, b).size === 0
 }
 
 /**
@@ -517,6 +578,7 @@ export function serializeForm(schema: FormSchema): JSONRecord {
 		if (field.hidden !== undefined) entry.hidden = field.hidden
 		if (field.disabled !== undefined) entry.disabled = field.disabled
 		if (field.locked !== undefined) entry.locked = field.locked
+		if (field.meta !== undefined) entry.meta = field.meta
 
 		switch (field.control) {
 			case 'text':
@@ -618,15 +680,130 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 	const faults: string[] = []
 	const fields = new Set<string>()
 	const groups = new Set<string>()
+	let choiceExceeded: string | undefined
+	let nameExceeded = schema.name !== undefined && schema.name.length > NAME_LIMIT
+
+	if (schema.fields.length > FIELD_LIMIT) {
+		faults.push(`Schema declares more than ${FIELD_LIMIT} fields`)
+	}
+	if (schema.groups !== undefined && schema.groups.length > GROUP_LIMIT) {
+		faults.push(`Schema declares more than ${GROUP_LIMIT} groups`)
+	}
 
 	if (schema.groups !== undefined) {
-		for (const group of schema.groups) {
+		const count = Math.min(schema.groups.length, GROUP_LIMIT + 1)
+		for (let index = 0; index < count; index += 1) {
+			const group = schema.groups[index]
+			if (group !== undefined && group.name.length > NAME_LIMIT) nameExceeded = true
+		}
+	}
+
+	const fieldCount = Math.min(schema.fields.length, FIELD_LIMIT + 1)
+	for (let index = 0; index < fieldCount; index += 1) {
+		const field = schema.fields[index]
+		if (field === undefined) continue
+
+		if (
+			field.name.length > NAME_LIMIT ||
+			(field.group !== undefined && field.group.length > NAME_LIMIT)
+		) {
+			nameExceeded = true
+		}
+		if (
+			choiceExceeded === undefined &&
+			(field.control === 'select' || field.control === 'checkbox') &&
+			field.choices.length > CHOICE_LIMIT
+		) {
+			choiceExceeded = field.name
+		}
+	}
+
+	if (choiceExceeded !== undefined) {
+		faults.push(`Field "${choiceExceeded}" offers more than ${CHOICE_LIMIT} choices`)
+	}
+	if (nameExceeded) faults.push(`Schema contains a name longer than ${NAME_LIMIT}`)
+
+	const pending: unknown[] = [schema]
+	const metadata: boolean[] = [false]
+	let position = 0
+	let stringExceeded = false
+	let textExceeded = false
+	let nodeExceeded = false
+	let text = 0
+
+	while (position < pending.length) {
+		const node = pending[position]
+		const inMeta = metadata[position] === true
+		position += 1
+
+		if (isString(node)) {
+			if (node.length > STRING_LIMIT) stringExceeded = true
+			text = Math.min(TEXT_LIMIT + 1, text + node.length)
+			if (text > TEXT_LIMIT) textExceeded = true
+			continue
+		}
+
+		if (isArray(node)) {
+			const length = attempt(() => node.length)
+			if (!length.success || length.value > NODE_LIMIT - pending.length) {
+				nodeExceeded = true
+				continue
+			}
+
+			const read = readArrayEntries(node)
+			if (!read.success || !read.value.dense) continue
+
+			for (let index = 0; index < read.value.entries.length; index += 1) {
+				const entry = read.value.entries[index]
+				if (entry !== undefined) {
+					pending.push(entry)
+					metadata.push(inMeta)
+				}
+			}
+			continue
+		}
+
+		if (!isRecord(node)) continue
+
+		const keys = attempt(() => Object.keys(node))
+		if (!keys.success) continue
+
+		for (const key of keys.value) {
+			if (inMeta) {
+				if (key.length > STRING_LIMIT) stringExceeded = true
+				text = Math.min(TEXT_LIMIT + 1, text + key.length)
+				if (text > TEXT_LIMIT) textExceeded = true
+			}
+
+			const value = attempt(() => node[key])
+			if (!value.success || value.value === undefined) continue
+			if (pending.length >= NODE_LIMIT) {
+				nodeExceeded = true
+				continue
+			}
+
+			pending.push(value.value)
+			metadata.push(inMeta || key === 'meta')
+		}
+	}
+
+	if (stringExceeded) faults.push(`Schema contains a string longer than ${STRING_LIMIT}`)
+	if (textExceeded) faults.push(`Schema retains more than ${TEXT_LIMIT} string code units`)
+	if (nodeExceeded) faults.push(`Schema retains more than ${NODE_LIMIT} nodes`)
+
+	if (schema.groups !== undefined) {
+		const count = Math.min(schema.groups.length, GROUP_LIMIT + 1)
+		for (let index = 0; index < count; index += 1) {
+			const group = schema.groups[index]
+			if (group === undefined) continue
 			if (groups.has(group.name)) faults.push(`Group "${group.name}" is declared more than once`)
 			groups.add(group.name)
 		}
 	}
 
-	for (const field of schema.fields) {
+	for (let fieldIndex = 0; fieldIndex < fieldCount; fieldIndex += 1) {
+		const field = schema.fields[fieldIndex]
+		if (field === undefined) continue
 		if (field.name.length === 0) faults.push('Field "" has an empty name')
 		if (field.name === '__proto__') faults.push('Field "__proto__" has a refused name')
 		if (fields.has(field.name)) faults.push(`Field "${field.name}" is declared more than once`)
@@ -658,37 +835,38 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 
 		if (field.control === 'select' || field.control === 'checkbox') {
 			const choices = new Set<string>()
+			const count = Math.min(field.choices.length, CHOICE_LIMIT + 1)
+			let enabled = 0
 
-			for (const choice of field.choices) {
+			for (let index = 0; index < count; index += 1) {
+				const choice = field.choices[index]
+				if (choice === undefined) continue
+				if (choice.disabled !== true) enabled += 1
 				if (choices.has(choice.value)) {
 					faults.push(`Field "${field.name}" offers choice "${choice.value}" more than once`)
 				}
 				choices.add(choice.value)
 			}
 
-			if (field.disabled !== true) {
-				const enabled = field.choices.filter((choice) => choice.disabled !== true).length
+			if (
+				field.control === 'select' &&
+				field.rule?.required === true &&
+				field.open !== true &&
+				enabled === 0
+			) {
+				faults.push(`Field "${field.name}" is required but offers no enabled choice`)
+			}
 
-				if (
-					field.control === 'select' &&
-					field.rule?.required === true &&
-					field.open !== true &&
-					enabled === 0
-				) {
-					faults.push(`Field "${field.name}" is required but offers no enabled choice`)
-				}
-
-				const minimum = field.rule?.minimum
-				if (
-					field.control === 'checkbox' &&
-					isFiniteNumber(minimum) &&
-					minimum > 0 &&
-					minimum > enabled
-				) {
-					faults.push(
-						`Field "${field.name}" has minimum ${minimum} but offers only ${enabled} enabled ${enabled === 1 ? 'choice' : 'choices'}`,
-					)
-				}
+			const minimum = field.rule?.minimum
+			if (
+				field.control === 'checkbox' &&
+				isFiniteNumber(minimum) &&
+				minimum > 0 &&
+				minimum > enabled
+			) {
+				faults.push(
+					`Field "${field.name}" has minimum ${minimum} but offers only ${enabled} enabled ${enabled === 1 ? 'choice' : 'choices'}`,
+				)
 			}
 		}
 

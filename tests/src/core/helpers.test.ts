@@ -8,15 +8,25 @@ import type {
 	FormValues,
 } from '@src/core'
 import {
+	CHOICE_LIMIT,
 	FIELD_CONTROLS,
+	FIELD_LIMIT,
 	Form,
+	GROUP_LIMIT,
+	LIST_LIMIT,
+	NAME_LIMIT,
+	NODE_LIMIT,
+	STRING_LIMIT,
+	TEXT_LIMIT,
 	appliesRule,
 	auditSchema,
+	changedValues,
 	computeDefaults,
 	evaluateField,
 	evaluateForm,
 	extractGroups,
 	formatMessage,
+	matchesAnswer,
 	matchesField,
 	matchesValue,
 	matchesValues,
@@ -24,7 +34,23 @@ import {
 } from '@src/core'
 import { PATTERN_LIMIT } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { MATRIX_FIELDS, MATRIX_RULES, MATRIX_VALUES, RULE_APPLICABILITY } from '../../setup.js'
+import {
+	ANSWER_CASES,
+	CHANGED_CASES,
+	MATRIX_FIELDS,
+	MATRIX_RULES,
+	MATRIX_VALUES,
+	RULE_APPLICABILITY,
+	STRING_FIELDS,
+	createCheckboxLimit,
+	createChoiceBudgetSchema,
+	createFieldBudgetSchema,
+	createGroupBudgetSchema,
+	createNameBudgetCases,
+	createNodeBudgetSchema,
+	createStringBudgetCases,
+	createTextBudgetSchema,
+} from '../../setup.js'
 
 function createMatrixField(control: FieldControl, rule: FieldRule): FormField {
 	const field = MATRIX_FIELDS[control]
@@ -193,24 +219,82 @@ describe('matchesField', () => {
 			false,
 		)
 	})
+
+	it('enforces string ceilings before format and membership work', () => {
+		const boundary = 'x'.repeat(STRING_LIMIT)
+		const oversized = 'x'.repeat(STRING_LIMIT + 1)
+		const choices = new Proxy<Array<{ value: string; label: string }>>([], {
+			get() {
+				throw new Error('membership should not run')
+			},
+		})
+
+		for (const field of STRING_FIELDS) expect(matchesField(field, oversized)).toBe(false)
+		expect(matchesField({ control: 'text', name: 'text' }, boundary)).toBe(true)
+		expect(matchesField({ control: 'editor', name: 'editor' }, boundary)).toBe(true)
+		expect(matchesField({ control: 'password', name: 'password' }, boundary)).toBe(true)
+		expect(
+			matchesField({ control: 'select', name: 'select', choices: [], open: true }, boundary),
+		).toBe(true)
+		expect(
+			matchesField({ control: 'select', name: 'select', choices, open: true }, oversized),
+		).toBe(false)
+	})
+
+	it('enforces list and list-entry ceilings for checkbox and file values', () => {
+		const [boundaryField, boundaryValue] = createCheckboxLimit(LIST_LIMIT)
+		const [oversizedField, oversizedValue] = createCheckboxLimit(LIST_LIMIT + 1)
+		const [entryField, entryValue] = createCheckboxLimit(1, STRING_LIMIT)
+		const [longEntryField, longEntryValue] = createCheckboxLimit(1, STRING_LIMIT + 1)
+
+		expect(matchesField(boundaryField, boundaryValue)).toBe(true)
+		expect(matchesField(oversizedField, oversizedValue)).toBe(false)
+		expect(matchesField(entryField, entryValue)).toBe(true)
+		expect(matchesField(longEntryField, longEntryValue)).toBe(false)
+		expect(
+			matchesField(
+				{ control: 'file', name: 'file', multiple: true },
+				Array.from({ length: LIST_LIMIT }, () => 'file.txt'),
+			),
+		).toBe(true)
+		expect(
+			matchesField(
+				{ control: 'file', name: 'file', multiple: true },
+				Array.from({ length: LIST_LIMIT + 1 }, () => 'file.txt'),
+			),
+		).toBe(false)
+		expect(matchesField({ control: 'file', name: 'file' }, ['x'.repeat(STRING_LIMIT)])).toBe(true)
+		expect(matchesField({ control: 'file', name: 'file' }, ['x'.repeat(STRING_LIMIT + 1)])).toBe(
+			false,
+		)
+	})
 })
 
 describe('evaluateField', () => {
-	it('reports required first for every absent control and runs nothing else', () => {
-		const required: readonly FieldRuleName[] = ['required']
-		let called = false
+	it('reports required first for every absent control and then runs custom', () => {
+		let received: FieldValue | undefined = 'not called'
 
 		expect(
 			evaluateField(
 				{
 					control: 'text',
 					name: 'text',
-					rule: { required: true, minimum: 2, custom: () => ((called = true), true) },
+					rule: {
+						required: true,
+						minimum: 2,
+						custom: (value) => {
+							received = value
+							return 'Custom failure'
+						},
+					},
 				},
 				undefined,
 				{},
-			).map((error) => error.rule),
-		).toStrictEqual(required)
+			),
+		).toStrictEqual([
+			{ field: 'text', message: 'This field is required', rule: 'required' },
+			{ field: 'text', message: 'Custom failure' },
+		])
 		expect(
 			evaluateField({ control: 'editor', name: 'editor', rule: { required: true } }, undefined, {}),
 		).toHaveLength(1)
@@ -274,7 +358,48 @@ describe('evaluateField', () => {
 		expect(
 			evaluateField({ control: 'file', name: 'file', rule: { required: true } }, undefined, {}),
 		).toHaveLength(1)
-		expect(called).toBe(false)
+		expect(received).toBeUndefined()
+	})
+
+	it('lets custom pass, fail conditionally, or throw on absence', () => {
+		const failure = new Error('custom failure')
+
+		expect(
+			evaluateField(
+				{ control: 'text', name: 'optional', rule: { custom: () => true } },
+				undefined,
+				{},
+			),
+		).toStrictEqual([])
+		expect(
+			evaluateField(
+				{
+					control: 'text',
+					name: 'address',
+					rule: {
+						custom: (value, values) =>
+							values.subscribe === true && value === undefined ? 'Address required' : true,
+					},
+				},
+				undefined,
+				{ subscribe: true },
+			),
+		).toStrictEqual([{ field: 'address', message: 'Address required' }])
+		expect(() =>
+			evaluateField(
+				{
+					control: 'text',
+					name: 'throwing',
+					rule: {
+						custom: () => {
+							throw failure
+						},
+					},
+				},
+				undefined,
+				{},
+			),
+		).toThrow(failure)
 	})
 
 	it('checks bounds with each control own measurement', () => {
@@ -533,6 +658,22 @@ describe('evaluateField', () => {
 })
 
 describe('form helpers', () => {
+	it('projects raw binding values into answer presence', () => {
+		for (const entry of ANSWER_CASES) expect(matchesAnswer(entry.value)).toBe(entry.answer)
+	})
+
+	it('snapshots changed names with absence-aware value comparison', () => {
+		for (const entry of CHANGED_CASES) {
+			expect([...changedValues(entry.current, entry.opened)]).toStrictEqual(entry.names)
+		}
+
+		const values: FormValues = { answer: ['one'] }
+		const changed = changedValues(values, values)
+
+		expect(changed).toEqual(new Set())
+		expect(changed).not.toBe(changedValues(values, values))
+	})
+
 	it('compares one field value by scalar identity or ordered list content', () => {
 		expect(matchesValue('same', 'same')).toBe(true)
 		expect(matchesValue(['one', 'two'], ['one', 'two'])).toBe(true)
@@ -562,6 +703,26 @@ describe('form helpers', () => {
 			'locked',
 		])
 		expect(evaluateForm(schema, {}).every((error) => Object.isFrozen(error))).toBe(true)
+	})
+
+	it('groups message overrides and lets an explicit disabled set replace declarations', () => {
+		const schema: FormSchema = {
+			fields: [
+				{ control: 'text', name: 'active', rule: { required: true } },
+				{ control: 'text', name: 'declared', disabled: true, rule: { required: true } },
+			],
+		}
+
+		expect(
+			evaluateForm(schema, {}, { messages: { required: 'Answer this' } }).map((error) => [
+				error.field,
+				error.message,
+			]),
+		).toStrictEqual([['active', 'Answer this']])
+		expect(
+			evaluateForm(schema, {}, { disabled: new Set(['active']) }).map((error) => error.field),
+		).toStrictEqual(['declared'])
+		expect(evaluateForm(schema, {}).map((error) => error.field)).toStrictEqual(['active'])
 	})
 
 	it('reads only own answer keys during evaluation', () => {
@@ -660,6 +821,24 @@ describe('form helpers', () => {
 		)
 		expect(Object.getPrototypeOf(serialized)).toBeNull()
 		expect(Object.isFrozen(serialized)).toBe(true)
+	})
+
+	it('serializes field meta through JSON', () => {
+		const meta = { column: 2, nested: { tags: ['contact'] } }
+		const serialized = serializeForm({
+			fields: [{ control: 'text', name: 'email', meta }],
+		})
+		const parsed = JSON.parse(JSON.stringify(serialized))
+
+		expect(parsed).toStrictEqual({
+			fields: [
+				{
+					control: 'text',
+					name: 'email',
+					meta: { column: 2, nested: { tags: ['contact'] } },
+				},
+			],
+		})
 	})
 
 	it('omits a rule whose only authored member is custom', () => {
@@ -820,7 +999,7 @@ describe('auditSchema', () => {
 		expect(form.submit()).toStrictEqual({ success: true, value: { topics: [] } })
 	})
 
-	it('exempts disabled choice fields from satisfiability faults', () => {
+	it('audits satisfiability independently of declared field disablement', () => {
 		expect(
 			auditSchema({
 				fields: [
@@ -836,11 +1015,21 @@ describe('auditSchema', () => {
 						name: 'topics',
 						disabled: true,
 						choices: [{ value: 'legacy', label: 'Legacy', disabled: true }],
+						rule: { required: true },
+					},
+					{
+						control: 'checkbox',
+						name: 'minimum',
+						disabled: true,
+						choices: [{ value: 'legacy', label: 'Legacy', disabled: true }],
 						rule: { minimum: 1 },
 					},
 				],
 			}),
-		).toStrictEqual([])
+		).toStrictEqual([
+			'Field "plan" is required but offers no enabled choice',
+			'Field "minimum" has minimum 1 but offers only 0 enabled choices',
+		])
 	})
 
 	it('faults active closed selects and unattainable checkbox minimums', () => {
@@ -1011,6 +1200,70 @@ describe('auditSchema', () => {
 				],
 			}),
 		).toStrictEqual([])
+	})
+
+	it('enforces field, group, and choice cardinality budgets at exact boundaries', () => {
+		expect(auditSchema(createFieldBudgetSchema(FIELD_LIMIT))).toStrictEqual([])
+		expect(auditSchema(createFieldBudgetSchema(FIELD_LIMIT + 1))).toContain(
+			`Schema declares more than ${FIELD_LIMIT} fields`,
+		)
+		expect(auditSchema(createGroupBudgetSchema(GROUP_LIMIT))).toStrictEqual([])
+		expect(auditSchema(createGroupBudgetSchema(GROUP_LIMIT + 1))).toContain(
+			`Schema declares more than ${GROUP_LIMIT} groups`,
+		)
+		expect(auditSchema(createChoiceBudgetSchema(CHOICE_LIMIT))).toStrictEqual([])
+		expect(auditSchema(createChoiceBudgetSchema(CHOICE_LIMIT + 1))).toContain(
+			`Field "choice" offers more than ${CHOICE_LIMIT} choices`,
+		)
+	})
+
+	it('enforces every name site at the exact UTF-16 boundary', () => {
+		for (const entry of createNameBudgetCases(NAME_LIMIT)) {
+			expect({
+				label: entry.label,
+				faults: auditSchema(entry.schema).filter((fault) => fault.includes('name longer')),
+			}).toStrictEqual({ label: entry.label, faults: [] })
+		}
+
+		for (const entry of createNameBudgetCases(NAME_LIMIT + 1)) {
+			expect({
+				label: entry.label,
+				faults: auditSchema(entry.schema).filter((fault) => fault.includes('name longer')),
+			}).toStrictEqual({
+				label: entry.label,
+				faults: [`Schema contains a name longer than ${NAME_LIMIT}`],
+			})
+		}
+	})
+
+	it('enforces every retained string site at the exact UTF-16 boundary', () => {
+		for (const entry of createStringBudgetCases(STRING_LIMIT)) {
+			expect({
+				label: entry.label,
+				faults: auditSchema(entry.schema).filter((fault) => fault.includes('string longer')),
+			}).toStrictEqual({ label: entry.label, faults: [] })
+		}
+
+		for (const entry of createStringBudgetCases(STRING_LIMIT + 1)) {
+			expect({
+				label: entry.label,
+				faults: auditSchema(entry.schema).filter((fault) => fault.includes('string longer')),
+			}).toStrictEqual({
+				label: entry.label,
+				faults: [`Schema contains a string longer than ${STRING_LIMIT}`],
+			})
+		}
+	})
+
+	it('enforces total retained text and node budgets at exact boundaries', () => {
+		expect(auditSchema(createTextBudgetSchema(TEXT_LIMIT))).toStrictEqual([])
+		expect(auditSchema(createTextBudgetSchema(TEXT_LIMIT + 1))).toContain(
+			`Schema retains more than ${TEXT_LIMIT} string code units`,
+		)
+		expect(auditSchema(createNodeBudgetSchema(NODE_LIMIT))).toStrictEqual([])
+		expect(auditSchema(createNodeBudgetSchema(NODE_LIMIT + 1))).toContain(
+			`Schema retains more than ${NODE_LIMIT} nodes`,
+		)
 	})
 })
 
