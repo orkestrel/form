@@ -1202,6 +1202,34 @@ describe('auditSchema', () => {
 		).toStrictEqual([])
 	})
 
+	it('refuses negative maxima only for length and count measurements', () => {
+		expect(
+			auditSchema({
+				fields: [
+					{ control: 'text', name: 'text', rule: { maximum: -1 } },
+					{ control: 'editor', name: 'editor', rule: { maximum: -1 } },
+					{ control: 'password', name: 'password', rule: { maximum: -1 } },
+					{ control: 'checkbox', name: 'checkbox', choices: [], rule: { maximum: -1 } },
+					{ control: 'file', name: 'file', rule: { maximum: -1 } },
+				],
+			}),
+		).toStrictEqual([
+			'Field "text" has a negative maximum on text',
+			'Field "editor" has a negative maximum on editor',
+			'Field "password" has a negative maximum on password',
+			'Field "checkbox" has a negative maximum on checkbox',
+			'Field "file" has a negative maximum on file',
+		])
+		expect(
+			auditSchema({
+				fields: [
+					{ control: 'text', name: 'empty', rule: { maximum: 0 } },
+					{ control: 'number', name: 'negative', rule: { maximum: -1 } },
+				],
+			}),
+		).toStrictEqual([])
+	})
+
 	it('enforces field, group, and choice cardinality budgets at exact boundaries', () => {
 		expect(auditSchema(createFieldBudgetSchema(FIELD_LIMIT))).toStrictEqual([])
 		expect(auditSchema(createFieldBudgetSchema(FIELD_LIMIT + 1))).toContain(

@@ -105,6 +105,11 @@ export function isFieldRule(input: unknown): input is FieldRule {
 /**
  * Determine whether an unknown value is one exact discriminated form field.
  *
+ * @remarks
+ * Metadata is admitted structurally as bounded JSON. An accessor-bearing metadata record is
+ * refused later when {@link cloneFormField} takes ownership, because ownership accepts enumerable
+ * data properties only.
+ *
  * @param input - The value to inspect.
  * @returns Whether the value is a structurally valid form field.
  */
@@ -263,7 +268,7 @@ export function isFormField(input: unknown): input is FormField {
 			(hasDisabled && !isBoolean(disabled)) ||
 			(hasLocked && !isBoolean(locked)) ||
 			(hasRule && !isFieldRule(rule)) ||
-			(meta !== undefined && !isBoundedJSONRecord(meta))
+			(hasMeta && !isBoundedJSONRecord(meta))
 		) {
 			return false
 		}

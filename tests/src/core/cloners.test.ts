@@ -1,5 +1,13 @@
 import type { FieldChoice, FormField, FormSchema } from '@src/core'
-import { cloneChoices, cloneFormField, cloneFormSchema, cloneValue } from '@src/core'
+import {
+	cloneChoices,
+	cloneFormField,
+	cloneFormSchema,
+	cloneValue,
+	Form,
+	isFormError,
+} from '@src/core'
+import { attempt } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
 
 describe('form cloners', () => {
@@ -87,6 +95,30 @@ describe('form cloners', () => {
 			expect(clone.meta).toEqual({ renderer: 'terminal' })
 			expect(clone.meta).not.toBe(meta)
 		}
+	})
+
+	it('reports metadata ownership refusal as a schema error naming the field', () => {
+		const field: FormField = {
+			control: 'text',
+			name: 'email',
+			meta: {
+				get icon() {
+					return 'mail'
+				},
+			},
+		}
+
+		const cloned = attempt(() => cloneFormField(field))
+		const constructed = attempt(() => new Form({ fields: [field] }))
+		const cloneError = cloned.success ? undefined : cloned.error
+		const constructError = constructed.success ? undefined : constructed.error
+
+		expect(isFormError(cloneError)).toBe(true)
+		expect(isFormError(cloneError) ? cloneError.code : undefined).toBe('SCHEMA')
+		expect(isFormError(cloneError) ? cloneError.context?.field : undefined).toBe('email')
+		expect(isFormError(constructError)).toBe(true)
+		expect(isFormError(constructError) ? constructError.code : undefined).toBe('SCHEMA')
+		expect(isFormError(constructError) ? constructError.context?.field : undefined).toBe('email')
 	})
 
 	it('owns every nested schema record and list', () => {

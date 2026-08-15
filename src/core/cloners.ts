@@ -1,6 +1,7 @@
 import type { JSONRecord } from '@orkestrel/contract'
 import type { FieldChoice, FieldRule, FieldValue, FormField, FormSchema } from './types.js'
-import { cloneJSONRecord, isArray } from '@orkestrel/contract'
+import { cloneJSONRecord, isArray, isContractError } from '@orkestrel/contract'
+import { FormError } from './errors.js'
 
 /**
  * Clone one form value into an owned frozen snapshot.
@@ -29,12 +30,23 @@ export function cloneChoices(choices: readonly FieldChoice[]): readonly FieldCho
  *
  * @param field - The field to own.
  * @returns A frozen field with every nested collection owned.
+ * @throws A {@link FormError} coded `SCHEMA` when accessor-bearing metadata cannot be owned.
  */
 export function cloneFormField(field: FormField): FormField {
 	const rule: { rule?: Readonly<FieldRule> } =
 		field.rule === undefined ? {} : { rule: Object.freeze({ ...field.rule }) }
-	const meta: { meta?: JSONRecord } =
-		field.meta === undefined ? {} : { meta: cloneJSONRecord(field.meta) }
+	let meta: { meta?: JSONRecord } = {}
+
+	if (field.meta !== undefined) {
+		try {
+			meta = { meta: cloneJSONRecord(field.meta) }
+		} catch (error) {
+			if (!isContractError(error)) throw error
+			throw new FormError('SCHEMA', `Field "${field.name}" has metadata that cannot be owned`, {
+				field: field.name,
+			})
+		}
+	}
 
 	switch (field.control) {
 		case 'select':

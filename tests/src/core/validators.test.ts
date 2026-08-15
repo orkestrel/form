@@ -91,6 +91,11 @@ describe('structural guards', () => {
 		expect(isFieldError({ field: 'name', message: 'Required', extra: true })).toBe(false)
 	})
 
+	it('refuses explicitly undefined optional field members', () => {
+		expect(isFormField({ control: 'text', name: 'name', meta: undefined })).toBe(false)
+		expect(isFormField({ control: 'text', name: 'name', help: undefined })).toBe(false)
+	})
+
 	it('keeps value guards budget-free while control matching enforces the string ceiling', () => {
 		const value = 'x'.repeat(STRING_LIMIT + 1)
 

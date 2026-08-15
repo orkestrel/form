@@ -81,6 +81,19 @@ describe('core constants', () => {
 		expect(PATTERN_LIMIT).toBe(256)
 	})
 
+	it('freezes every shipped pattern', () => {
+		expect([
+			Object.isFrozen(EMAIL_PATTERN),
+			Object.isFrozen(URL_PATTERN),
+			Object.isFrozen(ALPHANUMERIC_PATTERN),
+			Object.isFrozen(INTEGER_PATTERN),
+			Object.isFrozen(COLOR_PATTERN),
+			Object.isFrozen(DATE_PATTERN),
+			Object.isFrozen(TIME_PATTERN),
+			Object.isFrozen(DATETIME_PATTERN),
+		]).toStrictEqual([true, true, true, true, true, true, true, true])
+	})
+
 	it('fixes every cardinality and length budget at an exact whole number', () => {
 		expect(FIELD_LIMIT).toBe(512)
 		expect(GROUP_LIMIT).toBe(64)

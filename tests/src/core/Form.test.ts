@@ -1,6 +1,7 @@
 import type {
 	FieldChoice,
 	FieldError,
+	FieldValidator,
 	FormEventMap,
 	FormField,
 	FormSchema,
@@ -522,6 +523,34 @@ describe('Form disable and enable', () => {
 		expect(events).toStrictEqual(['disable:first', 'disable:second'])
 	})
 
+	it('does not reevaluate when every requested field is already in that state', () => {
+		let calls = 0
+		const form = new Form({
+			fields: [
+				{
+					control: 'text',
+					name: 'watcher',
+					rule: {
+						custom: () => {
+							calls += 1
+							return calls < 3 ? true : 'Changed during no-op'
+						},
+					},
+				},
+				{ control: 'text', name: 'target' },
+			],
+		})
+		const validations = createRecorder<FormEventMap['validate']>()
+		form.emitter.on('validate', validations.handler)
+
+		form.disable('target')
+		form.disable('target')
+
+		expect(calls).toBe(2)
+		expect(form.errors).toStrictEqual([])
+		expect(validations.count).toBe(0)
+	})
+
 	it('recomputes errors once after the field events', () => {
 		const form = new Form({
 			fields: [
@@ -664,6 +693,86 @@ describe('Form disable and enable', () => {
 })
 
 describe('Form submit', () => {
+	it('decides after a validate listener enables an invalid field', () => {
+		let calls = 0
+		const flaky: FieldValidator = () => {
+			calls += 1
+			return calls === 1 ? 'Not yet' : true
+		}
+		const form = new Form({
+			name: 'r3',
+			label: 'r3',
+			fields: [
+				{ control: 'text', name: 'y', label: 'y', rule: { custom: flaky } },
+				{
+					control: 'text',
+					name: 'x',
+					label: 'x',
+					disabled: true,
+					rule: { required: true },
+				},
+			],
+		})
+		let armed = true
+		form.emitter.on('validate', () => {
+			if (armed) {
+				armed = false
+				form.enable('x')
+			}
+		})
+
+		const result = form.submit()
+
+		expect(armed).toBe(false)
+		expect({
+			success: result.success,
+			status: form.status,
+			valid: form.valid,
+			errors: form.errors.map((error) => error.rule),
+		}).toStrictEqual({
+			success: false,
+			status: 'editing',
+			valid: false,
+			errors: ['required'],
+		})
+		expect([...form.touched]).toStrictEqual(['y', 'x'])
+	})
+
+	it('keeps an initially failed submit failed when its listener disables the erroring field', () => {
+		let calls = 0
+		const form = new Form({
+			fields: [
+				{
+					control: 'text',
+					name: 'y',
+					rule: {
+						custom: () => {
+							calls += 1
+							return calls === 1 ? 'Not yet' : true
+						},
+					},
+				},
+				{ control: 'text', name: 'x', rule: { required: true } },
+			],
+		})
+		let armed = true
+		form.emitter.on('validate', () => {
+			if (armed) {
+				armed = false
+				form.disable('x')
+			}
+		})
+
+		const result = form.submit()
+
+		expect(armed).toBe(false)
+		expect(result.success).toBe(false)
+		expect(result.success ? [] : result.error.map((error) => error.rule)).toStrictEqual([
+			'required',
+		])
+		expect([...form.touched]).toStrictEqual(['y'])
+	})
+
 	it('touches every enabled field and stays open when an answer fails', () => {
 		const form = new Form(SCHEMA)
 		const events: string[] = []

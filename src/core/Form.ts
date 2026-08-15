@@ -64,6 +64,7 @@ export class Form implements FormInterface {
 	#errors: readonly FieldError[] = Object.freeze([])
 	#status: FormStatus = 'editing'
 	#batchDepth = 0
+	#evaluation = 0
 	#pending = false
 
 	/**
@@ -390,7 +391,11 @@ export class Form implements FormInterface {
 	 * @returns The values on success, or every error that stopped them.
 	 * @remarks
 	 * A failed submit marks every enabled field touched, so a renderer can show the errors the
-	 * person has not reached yet. A disabled field is neither checked nor submitted.
+	 * person has not reached yet. A disabled field is neither checked nor submitted. When a changed
+	 * evaluation notifies listeners, submit evaluates once more after those listeners return before
+	 * it decides. That drain is bounded to one evaluation rather than a fixpoint loop: mutations from
+	 * its own `validate` emission establish the state the call decides from. An evaluation that
+	 * already failed remains the batch's failure outcome even when a listener disables its field.
 	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended.
 	 */
 	submit(): FormResult {
@@ -398,7 +403,19 @@ export class Form implements FormInterface {
 
 		return this.#batch(() => {
 			const changed = this.#evaluate()
-			const stopped = this.#errors.length > 0
+			const checked = this.#errors
+			const failed = checked.length > 0
+			const evaluation = this.#evaluation
+
+			if (changed) {
+				this.#emitter.emit('validate', this.#errors)
+				if (this.#evaluation !== evaluation && this.#evaluate()) {
+					this.#emitter.emit('validate', this.#errors)
+				}
+			}
+
+			const errors = failed ? checked : this.#errors
+			const stopped = errors.length > 0
 
 			if (stopped) {
 				const disabled = this.disabled
@@ -407,8 +424,7 @@ export class Form implements FormInterface {
 				}
 			}
 
-			if (changed) this.#emitter.emit('validate', this.#errors)
-			if (stopped) return { success: false, error: this.#errors }
+			if (stopped) return { success: false, error: errors }
 
 			const answers = this.#snapshot()
 			this.#status = 'settled'
@@ -505,6 +521,7 @@ export class Form implements FormInterface {
 			const current = this.#disabled.get(field.name) ?? field.disabled === true
 			if (active && current !== disabled) moved.push(field.name)
 		}
+		if (moved.length === 0) return
 
 		this.#batch(() => {
 			for (const name of names) this.#disabled.set(name, disabled)
@@ -535,7 +552,7 @@ export class Form implements FormInterface {
 		const next: readonly FieldError[] = Object.freeze(errors)
 		this.#errors = next
 
-		return (
+		const changed =
 			next.length !== previous.length ||
 			next.some((error, index) => {
 				const before = previous[index]
@@ -546,7 +563,8 @@ export class Form implements FormInterface {
 					before.rule !== error.rule
 				)
 			})
-		)
+		this.#evaluation += 1
+		return changed
 	}
 
 	#differs(name: string, value: FieldValue | undefined): boolean {

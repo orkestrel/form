@@ -891,6 +891,17 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 		if (isFiniteNumber(rule.maximum) && temporal) {
 			faults.push(`Field "${field.name}" has a numeric maximum on ${field.control}`)
 		}
+		if (
+			isFiniteNumber(rule.maximum) &&
+			rule.maximum < 0 &&
+			(field.control === 'text' ||
+				field.control === 'editor' ||
+				field.control === 'password' ||
+				field.control === 'checkbox' ||
+				field.control === 'file')
+		) {
+			faults.push(`Field "${field.name}" has a negative maximum on ${field.control}`)
+		}
 
 		if (rule.step !== undefined && !appliesRule(field.control, 'step')) {
 			faults.push(`Field "${field.name}" has step on ${field.control}`)
