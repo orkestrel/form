@@ -58,6 +58,7 @@ export class Form implements FormInterface {
 	readonly #baseline: FormValues
 	readonly #values: Record<string, FieldValue>
 	readonly #touched = new Set<string>()
+	readonly #disabled = new Map<string, boolean>()
 	readonly #invalidations = new Map<string, string>()
 	readonly #resolvers = Promise.withResolvers<FormValues>()
 	#errors: readonly FieldError[] = Object.freeze([])
@@ -166,6 +167,11 @@ export class Form implements FormInterface {
 		return Object.freeze(values)
 	}
 
+	/** The answers the form opened with. */
+	get baseline(): FormValues {
+		return this.#baseline
+	}
+
 	/** Every error the last completed evaluation produced. */
 	get errors(): readonly FieldError[] {
 		return this.#errors
@@ -174,6 +180,19 @@ export class Form implements FormInterface {
 	/** The names of the fields somebody has visited. */
 	get touched(): ReadonlySet<string> {
 		return new Set(this.#touched)
+	}
+
+	/** The names of the fields currently out of the form. */
+	get disabled(): ReadonlySet<string> {
+		const disabled = new Set<string>()
+
+		for (const field of this.#schema.fields) {
+			if ((this.#disabled.get(field.name) ?? field.disabled === true) === true) {
+				disabled.add(field.name)
+			}
+		}
+
+		return disabled
 	}
 
 	/** Where the form sits in its life. */
@@ -311,6 +330,60 @@ export class Form implements FormInterface {
 		})
 	}
 
+	/** Take every field out of the form. */
+	disable(): void
+	/**
+	 * Take one field out of the form.
+	 *
+	 * @param name - The field's name.
+	 */
+	disable(name: string): void
+	/**
+	 * Take several fields out of the form.
+	 *
+	 * @param names - The field names.
+	 */
+	disable(names: readonly string[]): void
+	/**
+	 * Take one or more fields out of the form.
+	 *
+	 * @param input - One field name, several names, or absence to select every field.
+	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended, and
+	 *   `FIELD` when the schema declares no requested name. Every name is checked before any field
+	 *   moves.
+	 */
+	disable(input?: string | readonly string[]): void {
+		this.#gate()
+		this.#change(input, true)
+	}
+
+	/** Put every field back into the form. */
+	enable(): void
+	/**
+	 * Put one field back into the form.
+	 *
+	 * @param name - The field's name.
+	 */
+	enable(name: string): void
+	/**
+	 * Put several fields back into the form.
+	 *
+	 * @param names - The field names.
+	 */
+	enable(names: readonly string[]): void
+	/**
+	 * Put one or more fields back into the form.
+	 *
+	 * @param input - One field name, several names, or absence to select every field.
+	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended, and
+	 *   `FIELD` when the schema declares no requested name. Every name is checked before any field
+	 *   moves.
+	 */
+	enable(input?: string | readonly string[]): void {
+		this.#gate()
+		this.#change(input, false)
+	}
+
 	/**
 	 * Check every answer and settle the form when they all pass.
 	 *
@@ -328,8 +401,9 @@ export class Form implements FormInterface {
 			const stopped = this.#errors.length > 0
 
 			if (stopped) {
+				const disabled = this.disabled
 				for (const field of this.#schema.fields) {
-					if (field.disabled !== true) this.#touched.add(field.name)
+					if (!disabled.has(field.name)) this.#touched.add(field.name)
 				}
 			}
 
@@ -347,7 +421,7 @@ export class Form implements FormInterface {
 
 	/**
 	 * Return every answer to the ones the form opened with: the schema's defaults, overlaid with
-	 * any seeded `values`.
+	 * any seeded `values`. Reset the runtime disabled state to the schema's declarations.
 	 *
 	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended.
 	 */
@@ -366,6 +440,7 @@ export class Form implements FormInterface {
 			}
 
 			this.#touched.clear()
+			this.#disabled.clear()
 			this.#invalidations.clear()
 
 			const changed = this.#evaluate()
@@ -413,12 +488,45 @@ export class Form implements FormInterface {
 		return field
 	}
 
+	#change(input: string | readonly string[] | undefined, disabled: boolean): void {
+		const names = new Set(
+			input === undefined
+				? this.#schema.fields.map((field) => field.name)
+				: isString(input)
+					? [input]
+					: input,
+		)
+
+		for (const name of names) this.#requireField(name)
+
+		const moved: string[] = []
+		for (const field of this.#schema.fields) {
+			const active = names.has(field.name)
+			const current = this.#disabled.get(field.name) ?? field.disabled === true
+			if (active && current !== disabled) moved.push(field.name)
+		}
+
+		this.#batch(() => {
+			for (const name of names) this.#disabled.set(name, disabled)
+
+			for (const name of moved) {
+				if (disabled) this.#emitter.emit('disable', name)
+				else this.#emitter.emit('enable', name)
+			}
+
+			if (this.#evaluate()) this.#emitter.emit('validate', this.#errors)
+		})
+	}
+
 	// Recompute the whole error list and cache it, reporting whether its content moved.
 	#evaluate(): boolean {
-		const errors: FieldError[] = [...evaluateForm(this.#schema, this.values, this.#messages)]
+		const disabled = this.disabled
+		const options =
+			this.#messages === undefined ? { disabled } : { messages: this.#messages, disabled }
+		const errors: FieldError[] = [...evaluateForm(this.#schema, this.values, options)]
 
 		for (const [field, message] of this.#invalidations) {
-			if (this.field(field)?.disabled !== true) {
+			if (!disabled.has(field)) {
 				errors.push(Object.freeze({ field, message }))
 			}
 		}
@@ -452,10 +560,11 @@ export class Form implements FormInterface {
 	// The answers a submit hands over: every enabled field somebody has answered.
 	#snapshot(): FormValues {
 		const answers: Record<string, FieldValue> = {}
+		const disabled = this.disabled
 
 		for (const field of this.#schema.fields) {
 			const value = Object.hasOwn(this.#values, field.name) ? this.#values[field.name] : undefined
-			if (field.disabled !== true && value !== undefined) {
+			if (!disabled.has(field.name) && value !== undefined) {
 				Object.defineProperty(answers, field.name, {
 					value,
 					enumerable: true,

@@ -148,6 +148,9 @@ describe('Form construction', () => {
 	it('overlays seeded values onto the schema defaults as the baseline', () => {
 		const form = new Form(SCHEMA, { values: { nickname: 'grace', email: 'ada@example.com' } })
 
+		expect(form.baseline).toBe(form.baseline)
+		expect(form.baseline).toStrictEqual(form.values)
+		expect(Object.isFrozen(form.baseline)).toBe(true)
 		expect(form.values.nickname).toBe('grace')
 		expect(form.dirty).toBe(false)
 		expect(form.errors).toStrictEqual([
@@ -435,6 +438,231 @@ describe('Form invalidate', () => {
 	})
 })
 
+describe('Form disable and enable', () => {
+	it('derives the effective disabled fields in schema order on every read', () => {
+		const form = new Form({
+			fields: [
+				{ control: 'text', name: 'first' },
+				{ control: 'text', name: 'second', disabled: true },
+				{ control: 'text', name: 'third' },
+			],
+		})
+		const opened = form.disabled
+
+		expect([...opened]).toStrictEqual(['second'])
+		expect(form.disabled).not.toBe(opened)
+
+		form.disable(['third', 'first'])
+
+		expect([...form.disabled]).toStrictEqual(['first', 'second', 'third'])
+		expect([...opened]).toStrictEqual(['second'])
+
+		form.enable('second')
+
+		expect([...form.disabled]).toStrictEqual(['first', 'third'])
+	})
+
+	it('moves every field with no argument and emits moved names in schema order', () => {
+		const form = new Form({
+			fields: [
+				{ control: 'text', name: 'first' },
+				{ control: 'text', name: 'second', disabled: true },
+				{ control: 'text', name: 'third' },
+			],
+		})
+		const events: string[] = []
+		form.emitter.on('disable', (name) => events.push(`disable:${name}`))
+		form.emitter.on('enable', (name) => events.push(`enable:${name}`))
+
+		form.disable()
+		form.enable()
+
+		expect(events).toStrictEqual([
+			'disable:first',
+			'disable:third',
+			'enable:first',
+			'enable:second',
+			'enable:third',
+		])
+		expect(form.disabled.size).toBe(0)
+	})
+
+	it('checks every requested name before moving any field', () => {
+		const form = new Form({
+			fields: [
+				{ control: 'text', name: 'first' },
+				{ control: 'text', name: 'second' },
+			],
+		})
+		const disables = createRecorder<FormEventMap['disable']>()
+		form.emitter.on('disable', disables.handler)
+
+		const outcome = attempt(() => form.disable(['second', 'missing', 'first']))
+		const thrown = outcome.success ? undefined : outcome.error
+
+		expect(isFormError(thrown) ? thrown.code : undefined).toBe('FIELD')
+		expect(form.disabled.size).toBe(0)
+		expect(disables.count).toBe(0)
+	})
+
+	it('emits once per effective move and nothing for repeated no-ops', () => {
+		const form = new Form({
+			fields: [
+				{ control: 'text', name: 'first' },
+				{ control: 'text', name: 'second' },
+			],
+		})
+		const events: string[] = []
+		form.emitter.on('disable', (name) => events.push(`disable:${name}`))
+		form.emitter.on('validate', () => events.push('validate'))
+
+		form.disable(['second', 'first'])
+		form.disable(['first', 'second'])
+
+		expect(events).toStrictEqual(['disable:first', 'disable:second'])
+	})
+
+	it('recomputes errors once after the field events', () => {
+		const form = new Form({
+			fields: [
+				{ control: 'text', name: 'first', rule: { required: true } },
+				{ control: 'text', name: 'second', rule: { required: true } },
+			],
+		})
+		const events: string[] = []
+		form.emitter.on('disable', (name) => events.push(`disable:${name}`))
+		form.emitter.on('validate', (errors) => events.push(`validate:${errors.length}`))
+
+		form.disable(['second', 'first'])
+
+		expect(events).toStrictEqual(['disable:first', 'disable:second', 'validate:0'])
+		expect(form.errors).toStrictEqual([])
+	})
+
+	it('keeps values, baseline, and dirty state independent from the overlay', () => {
+		const form = new Form({
+			fields: [{ control: 'text', name: 'name', default: 'Ada' }],
+		})
+		const baseline = form.baseline
+
+		form.disable('name')
+		form.fill('name', 'Grace')
+
+		expect([...form.disabled]).toStrictEqual(['name'])
+		expect(form.values).toStrictEqual({ name: 'Grace' })
+		expect(form.baseline).toBe(baseline)
+		expect(form.baseline).toStrictEqual({ name: 'Ada' })
+		expect(form.dirty).toBe(true)
+	})
+
+	it('withholds an invalidation while disabled and restores it on enable', () => {
+		const form = new Form({ fields: [{ control: 'text', name: 'name' }] })
+
+		form.invalidate('name', 'Unavailable')
+		expect(form.errors).toStrictEqual([{ field: 'name', message: 'Unavailable' }])
+
+		form.disable('name')
+		expect(form.errors).toStrictEqual([])
+
+		form.enable('name')
+		expect(form.errors).toStrictEqual([{ field: 'name', message: 'Unavailable' }])
+	})
+
+	it('brings a schema-declared disabled field into evaluation when enabled', () => {
+		const form = new Form({
+			fields: [{ control: 'text', name: 'name', disabled: true, rule: { required: true } }],
+		})
+
+		expect(form.errors).toStrictEqual([])
+
+		form.enable('name')
+
+		expect(form.errors).toStrictEqual([
+			{ field: 'name', message: 'This field is required', rule: 'required' },
+		])
+	})
+
+	it('defers listener-requested teardown until every disable event and evaluation finish', () => {
+		const events: string[] = []
+		const form = new Form(
+			{
+				fields: [
+					{ control: 'text', name: 'first', rule: { required: true } },
+					{ control: 'text', name: 'second', rule: { required: true } },
+				],
+			},
+			{
+				on: {
+					disable: (name) => {
+						events.push(`disable:${name}`)
+						form.destroy()
+					},
+					validate: () => events.push('validate'),
+					abandon: () => events.push('abandon'),
+				},
+			},
+		)
+
+		form.disable(['second', 'first'])
+
+		expect(events).toStrictEqual(['disable:first', 'disable:second', 'validate', 'abandon'])
+		expect(form.status).toBe('abandoned')
+		expect([...form.disabled]).toStrictEqual(['first', 'second'])
+	})
+
+	it('lets a nested submit settle before teardown requested by an enable listener', async () => {
+		const events: string[] = []
+		const form = new Form(
+			{ fields: [{ control: 'text', name: 'name', disabled: true, default: 'Ada' }] },
+			{
+				on: {
+					enable: () => {
+						events.push('enable')
+						form.submit()
+						form.destroy()
+					},
+					submit: () => events.push('submit'),
+					abandon: () => events.push('abandon'),
+				},
+			},
+		)
+
+		form.enable('name')
+
+		expect(events).toStrictEqual(['enable', 'submit'])
+		expect(form.status).toBe('settled')
+		expect(form.emitter.destroyed).toBe(true)
+		await expect(form.answer).resolves.toStrictEqual({ name: 'Ada' })
+	})
+
+	it('keeps an applied overlay beside stale errors when a custom validator throws', () => {
+		const failure = new Error('validator exploded')
+		let throwing = false
+		const form = new Form({
+			fields: [
+				{
+					control: 'text',
+					name: 'name',
+					disabled: true,
+					rule: {
+						custom: () => {
+							if (throwing) throw failure
+							return true
+						},
+					},
+				},
+			],
+		})
+		throwing = true
+
+		const outcome = attempt(() => form.enable('name'))
+
+		expect(outcome.success ? undefined : outcome.error).toBe(failure)
+		expect(form.disabled.size).toBe(0)
+		expect(form.errors).toStrictEqual([])
+	})
+})
+
 describe('Form submit', () => {
 	it('touches every enabled field and stays open when an answer fails', () => {
 		const form = new Form(SCHEMA)
@@ -490,7 +718,41 @@ describe('Form submit', () => {
 		form.fill(ANSWERED)
 		form.submit()
 
-		expect(refusalsOf(form)).toStrictEqual(['SETTLED', 'SETTLED', 'SETTLED', 'SETTLED', 'SETTLED'])
+		expect(refusalsOf(form)).toStrictEqual([
+			'SETTLED',
+			'SETTLED',
+			'SETTLED',
+			'SETTLED',
+			'SETTLED',
+			'SETTLED',
+			'SETTLED',
+		])
+	})
+
+	it('omits runtime-disabled defaults and skips them when a failed submit touches fields', () => {
+		const form = new Form({
+			fields: [
+				{ control: 'text', name: 'required', rule: { required: true } },
+				{ control: 'text', name: 'kept', default: 'Ada' },
+				{ control: 'text', name: 'opened', disabled: true, default: 'Grace' },
+			],
+		})
+		form.disable('kept')
+		form.enable('opened')
+
+		const failed = form.submit()
+
+		expect(failed.success).toBe(false)
+		expect(form.values).toStrictEqual({ kept: 'Ada', opened: 'Grace' })
+		expect([...form.touched]).toStrictEqual(['required', 'opened'])
+
+		form.fill('required', 'ready')
+		const submitted = form.submit()
+
+		expect(submitted).toStrictEqual({
+			success: true,
+			value: { required: 'ready', opened: 'Grace' },
+		})
 	})
 })
 
@@ -542,6 +804,29 @@ describe('Form clear', () => {
 
 		expect(form.values).toStrictEqual({ name: 'seeded' })
 		expect(form.dirty).toBe(false)
+	})
+
+	it('returns the disabled state to the schema declarations before reevaluation', () => {
+		const form = new Form({
+			fields: [
+				{ control: 'text', name: 'first', rule: { required: true } },
+				{
+					control: 'text',
+					name: 'second',
+					disabled: true,
+					rule: { required: true },
+				},
+			],
+		})
+		form.disable('first')
+		form.enable('second')
+		expect([...form.disabled]).toStrictEqual(['first'])
+		expect(form.errors.map((error) => error.field)).toStrictEqual(['second'])
+
+		form.clear()
+
+		expect([...form.disabled]).toStrictEqual(['second'])
+		expect(form.errors.map((error) => error.field)).toStrictEqual(['first'])
 	})
 })
 
@@ -658,8 +943,12 @@ describe('Form destroy', () => {
 			'ABANDONED',
 			'ABANDONED',
 			'ABANDONED',
+			'ABANDONED',
+			'ABANDONED',
 		])
 		expect(refusalsOf(settled)).toStrictEqual([
+			'SETTLED',
+			'SETTLED',
 			'SETTLED',
 			'SETTLED',
 			'SETTLED',
@@ -944,6 +1233,8 @@ function refusalsOf(form: Form): readonly string[] {
 		attempt(() => form.fill('nickname', 'grace')),
 		attempt(() => form.touch('nickname')),
 		attempt(() => form.invalidate('nickname', 'Somebody already uses that name')),
+		attempt(() => form.disable('nickname')),
+		attempt(() => form.enable('nickname')),
 		attempt(() => form.submit()),
 		attempt(() => form.clear()),
 	]
