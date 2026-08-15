@@ -48,8 +48,10 @@ import {
 	createGroupBudgetSchema,
 	createNameBudgetCases,
 	createNodeBudgetSchema,
+	createNodePopulationSchema,
 	createStringBudgetCases,
 	createTextBudgetSchema,
+	createTextPopulationSchema,
 } from '../../setup.js'
 
 function createMatrixField(control: FieldControl, rule: FieldRule): FormField {
@@ -1292,6 +1294,22 @@ describe('auditSchema', () => {
 		expect(auditSchema(createNodeBudgetSchema(NODE_LIMIT + 1))).toContain(
 			`Schema retains more than ${NODE_LIMIT} nodes`,
 		)
+	})
+
+	it('counts metadata keys but not schema-owned keys in the total text budget', () => {
+		const fault = `Schema retains more than ${TEXT_LIMIT} string code units`
+
+		expect(auditSchema(createTextPopulationSchema('m'.repeat(64), false))).toStrictEqual([])
+		expect(auditSchema(createTextPopulationSchema('m'.repeat(65), false))).toContain(fault)
+		expect(auditSchema(createTextPopulationSchema('m'.repeat(64), true))).toStrictEqual([])
+	})
+
+	it('counts metadata leaves but not metadata key spelling in the total node budget', () => {
+		const fault = `Schema retains more than ${NODE_LIMIT} nodes`
+
+		expect(auditSchema(createNodePopulationSchema('m', false))).toStrictEqual([])
+		expect(auditSchema(createNodePopulationSchema('m', true))).toContain(fault)
+		expect(auditSchema(createNodePopulationSchema('renamed', false))).toStrictEqual([])
 	})
 })
 

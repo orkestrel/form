@@ -6,7 +6,7 @@ import type {
 	FormSchema,
 	FormValues,
 } from '@src/core'
-import { STRING_LIMIT } from '@src/core'
+import { NODE_LIMIT, STRING_LIMIT, TEXT_LIMIT } from '@src/core'
 
 export interface AnswerCase {
 	readonly answer: boolean
@@ -382,6 +382,23 @@ export function createTextBudgetSchema(length: number): FormSchema {
 	return { fields: [{ control: 'text', name: 'f', meta }] }
 }
 
+export function createTextPopulationSchema(key: string, rule: boolean): FormSchema {
+	const keys = 'abcdefghijklmnop'
+	const meta: Record<string, string> = { [key]: '' }
+	let remaining = TEXT_LIMIT - 'text'.length - 'f'.length - keys.length - 64
+
+	for (const ballast of keys) {
+		const size = Math.min(STRING_LIMIT, remaining)
+		meta[ballast] = 'x'.repeat(size)
+		remaining -= size
+	}
+
+	const field: FormField = rule
+		? { control: 'text', name: 'f', meta, rule: {} }
+		: { control: 'text', name: 'f', meta }
+	return { fields: [field] }
+}
+
 export function passValidation(): true {
 	return true
 }
@@ -398,6 +415,12 @@ export function createNodeBudgetSchema(count: number): FormSchema {
 			},
 		],
 	}
+}
+
+export function createNodePopulationSchema(key: string, extra: boolean): FormSchema {
+	const values = Array.from({ length: NODE_LIMIT - 8 }, () => 0)
+	const meta = extra ? { values, [key]: 0, extra: 0 } : { values, [key]: 0 }
+	return { fields: [{ control: 'text', name: 'f', meta }] }
 }
 
 export function createCheckboxLimit(

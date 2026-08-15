@@ -393,9 +393,10 @@ export class Form implements FormInterface {
 	 * A failed submit marks every enabled field touched, so a renderer can show the errors the
 	 * person has not reached yet. A disabled field is neither checked nor submitted. When a changed
 	 * evaluation notifies listeners, submit evaluates once more after those listeners return before
-	 * it decides. That drain is bounded to one evaluation rather than a fixpoint loop: mutations from
-	 * its own `validate` emission establish the state the call decides from. An evaluation that
-	 * already failed remains the batch's failure outcome even when a listener disables its field.
+	 * it decides, unless nested listener work already settled the form. That drain is bounded to one
+	 * evaluation rather than a fixpoint loop: mutations from its own `validate` emission establish
+	 * the state the call decides from. An evaluation that already failed remains the batch's failure
+	 * outcome even when a listener disables its field.
 	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended.
 	 */
 	submit(): FormResult {
@@ -409,8 +410,12 @@ export class Form implements FormInterface {
 
 			if (changed) {
 				this.#emitter.emit('validate', this.#errors)
+				const settlement = this.#readSettlement()
+				if (settlement !== undefined) return settlement
 				if (this.#evaluation !== evaluation && this.#evaluate()) {
 					this.#emitter.emit('validate', this.#errors)
+					const drained = this.#readSettlement()
+					if (drained !== undefined) return drained
 				}
 			}
 
@@ -573,6 +578,12 @@ export class Form implements FormInterface {
 		if (value === undefined) return current !== undefined
 		if (current === undefined) return true
 		return !matchesValue(current, value)
+	}
+
+	#readSettlement(): FormResult | undefined {
+		if (this.#status === 'settled') return { success: true, value: this.#snapshot() }
+		if (this.#status === 'abandoned') this.#gate()
+		return undefined
 	}
 
 	// The answers a submit hands over: every enabled field somebody has answered.

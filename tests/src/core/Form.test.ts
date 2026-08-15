@@ -773,6 +773,76 @@ describe('Form submit', () => {
 		expect([...form.touched]).toStrictEqual(['y'])
 	})
 
+	it('returns the settlement made by a nested submit after its listener repairs the form', async () => {
+		let calls = 0
+		const flaky: FieldValidator = () => {
+			calls += 1
+			return calls === 1 ? 'Not yet' : true
+		}
+		const form = new Form({
+			name: 'recursive',
+			label: 'Recursive',
+			fields: [
+				{ control: 'text', name: 'y', label: 'Y', rule: { custom: flaky } },
+				{ control: 'text', name: 'x', label: 'X', rule: { required: true } },
+			],
+		})
+		const submits = createRecorder<FormEventMap['submit']>()
+		let armed = true
+		form.emitter.on('submit', submits.handler)
+		form.emitter.on('validate', () => {
+			if (armed) {
+				armed = false
+				form.fill('x', 'ready')
+				form.submit()
+			}
+		})
+
+		const result = form.submit()
+
+		expect(armed).toBe(false)
+		expect(submits.count).toBe(1)
+		expect(result).toStrictEqual({ success: true, value: { x: 'ready' } })
+		expect(calls).toBe(4)
+		expect(form.status).toBe('settled')
+		await expect(form.answer).resolves.toStrictEqual({ x: 'ready' })
+	})
+
+	it('emits submit once when a listener nests a submit after a passing evaluation', () => {
+		let calls = 0
+		const form = new Form({
+			fields: [
+				{
+					control: 'text',
+					name: 'value',
+					rule: {
+						custom: () => {
+							calls += 1
+							return calls === 1 ? 'Not yet' : true
+						},
+					},
+				},
+			],
+		})
+		const submits = createRecorder<FormEventMap['submit']>()
+		let armed = true
+		form.emitter.on('submit', submits.handler)
+		form.emitter.on('validate', () => {
+			if (armed) {
+				armed = false
+				form.submit()
+			}
+		})
+
+		const result = form.submit()
+
+		expect(armed).toBe(false)
+		expect(submits.count).toBe(1)
+		expect(result).toStrictEqual({ success: true, value: {} })
+		expect(calls).toBe(3)
+		expect(form.status).toBe('settled')
+	})
+
 	it('touches every enabled field and stays open when an answer fails', () => {
 		const form = new Form(SCHEMA)
 		const events: string[] = []
@@ -927,15 +997,24 @@ describe('Form clear', () => {
 				},
 			],
 		})
+		const fills = createRecorder<FormEventMap['fill']>()
+		const disables = createRecorder<FormEventMap['disable']>()
+		const enables = createRecorder<FormEventMap['enable']>()
 		form.disable('first')
 		form.enable('second')
 		expect([...form.disabled]).toStrictEqual(['first'])
 		expect(form.errors.map((error) => error.field)).toStrictEqual(['second'])
+		form.emitter.on('fill', fills.handler)
+		form.emitter.on('disable', disables.handler)
+		form.emitter.on('enable', enables.handler)
 
 		form.clear()
 
 		expect([...form.disabled]).toStrictEqual(['second'])
 		expect(form.errors.map((error) => error.field)).toStrictEqual(['first'])
+		expect(fills.count).toBe(0)
+		expect(disables.count).toBe(0)
+		expect(enables.count).toBe(0)
 	})
 })
 
