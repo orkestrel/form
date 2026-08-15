@@ -278,6 +278,36 @@ describe('parseForm', () => {
 		expect(Object.getPrototypeOf(meta?.__proto__ ?? {})).toBeNull()
 	})
 
+	it('refuses accessor metadata after structural admission and parses a valid control', () => {
+		const accessor = {
+			fields: [
+				{
+					control: 'text',
+					name: 'email',
+					meta: {
+						get icon() {
+							return 'mail'
+						},
+					},
+				},
+			],
+		}
+		const faults = isFormSchema(accessor) ? auditSchema(accessor) : undefined
+		const valid = parseForm({
+			name: 'signup',
+			fields: [{ control: 'text', name: 'email', meta: { icon: 'mail' } }],
+		})
+
+		expect(isFormSchema(accessor)).toBe(true)
+		expect(faults).toStrictEqual([])
+		expect(parseForm(accessor)).toBeUndefined()
+		expect(isFormSchema(valid)).toBe(true)
+		expect(valid).toEqual({
+			name: 'signup',
+			fields: [{ control: 'text', name: 'email', meta: { icon: 'mail' } }],
+		})
+	})
+
 	it('refuses metadata that is invalid or exceeds its retained budgets', () => {
 		const cycle: Record<string, unknown> = {}
 		cycle.self = cycle

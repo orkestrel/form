@@ -26,12 +26,14 @@ import {
 	extractChanges,
 	extractGroups,
 	formatMessage,
+	isFormError,
 	matchesAnswer,
 	matchesField,
 	matchesValue,
 	matchesValues,
 	serializeForm,
 } from '@src/core'
+import { attempt } from '@orkestrel/contract'
 import { PATTERN_LIMIT } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
@@ -841,6 +843,49 @@ describe('form helpers', () => {
 				},
 			],
 		})
+	})
+
+	it('reports metadata ownership refusal as a schema error naming the field', () => {
+		const outcome = attempt(() =>
+			serializeForm({
+				fields: [
+					{
+						control: 'text',
+						name: 'email',
+						meta: {
+							get icon() {
+								return 'mail'
+							},
+						},
+					},
+				],
+			}),
+		)
+		const error = outcome.success ? undefined : outcome.error
+
+		expect(isFormError(error)).toBe(true)
+		expect(isFormError(error) ? error.code : undefined).toBe('SCHEMA')
+		expect(isFormError(error) ? error.context?.field : undefined).toBe('email')
+	})
+
+	it('preserves a foreign metadata throw by identity', () => {
+		const failure = new Error('metadata read failed')
+		const schema: FormSchema = {
+			fields: [
+				{
+					control: 'text',
+					name: 'email',
+					get meta(): never {
+						throw failure
+					},
+				},
+			],
+		}
+		const outcome = attempt(() => serializeForm(schema))
+		const error = outcome.success ? undefined : outcome.error
+
+		expect(outcome.success).toBe(false)
+		expect(error).toBe(failure)
 	})
 
 	it('omits a rule whose only authored member is custom', () => {

@@ -17,6 +17,7 @@ import {
 	isBoolean,
 	isFiniteNumber,
 	isInteger,
+	isContractError,
 	isRecord,
 	isString,
 	readArrayEntries,
@@ -43,6 +44,7 @@ import {
 	TIME_PATTERN,
 	URL_PATTERN,
 } from './constants.js'
+import { FormError } from './errors.js'
 
 /**
  * Check whether a value has the shape required by one field control.
@@ -551,6 +553,8 @@ export function formatMessage(
  *
  * @param schema - The schema to project.
  * @returns A deep JSON copy of the serializable schema.
+ * @throws A {@link FormError} coded `SCHEMA` when accessor-bearing metadata cannot be owned. A
+ *   non-contract throw while reading metadata escapes unchanged.
  */
 export function serializeForm(schema: FormSchema): JSONRecord {
 	const output: Record<string, JSONValue> = {}
@@ -578,7 +582,17 @@ export function serializeForm(schema: FormSchema): JSONRecord {
 		if (field.hidden !== undefined) entry.hidden = field.hidden
 		if (field.disabled !== undefined) entry.disabled = field.disabled
 		if (field.locked !== undefined) entry.locked = field.locked
-		if (field.meta !== undefined) entry.meta = field.meta
+		const meta = field.meta
+		if (meta !== undefined) {
+			try {
+				entry.meta = cloneJSONRecord(meta)
+			} catch (error) {
+				if (!isContractError(error)) throw error
+				throw new FormError('SCHEMA', `Field "${field.name}" has metadata that cannot be owned`, {
+					field: field.name,
+				})
+			}
+		}
 
 		switch (field.control) {
 			case 'text':

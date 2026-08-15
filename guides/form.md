@@ -450,7 +450,9 @@ The guard reads structure alone, so it admits one record that ownership then ref
 keys are accessors rather than data. That record is bounded JSON by shape, and `cloneFormField`
 copies enumerable data properties only, so taking ownership of it throws `FormError` coded `SCHEMA`
 naming the field. The constructor reaches that refusal through the same clone, which is why a field
-`isFormField` accepted can still be refused when a form opens against it.
+`isFormField` accepted can still be refused when a form opens against it. `serializeForm` refuses
+the same record the same way — `SCHEMA` naming the field — and `parseForm` answers it as every
+refusal: `undefined`.
 
 **This package defines no key in it.** Every key belongs to the host, so two hosts can carry
 different vocabularies through the same document and neither collides with the package. A key this
