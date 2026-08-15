@@ -7,6 +7,7 @@ import {
 	parseNumber,
 	readArrayEntries,
 } from '@orkestrel/contract'
+import { cloneValue } from './cloners.js'
 import { auditSchema, matchesField, serializeForm } from './helpers.js'
 import { isFormSchema } from './validators.js'
 
@@ -95,7 +96,7 @@ export function parseForm(input: unknown): FormSchema | undefined {
  */
 export function parseValue(field: FormField, input: unknown): FieldValue | undefined {
 	const outcome = attempt(() => {
-		if (matchesField(field, input)) return input
+		if (matchesField(field, input)) return cloneValue(input)
 		if (field.control === 'number') return parseNumber(input)
 		if (field.control === 'confirm') {
 			if (input === 'true') return true

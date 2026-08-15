@@ -1,4 +1,4 @@
-import type { FieldRuleName, FormField, FormSchema, FormValues } from '../../../src/core/types.js'
+import type { FieldRuleName, FormField, FormSchema, FormValues } from '@src/core'
 import {
 	auditSchema,
 	computeDefaults,
@@ -9,8 +9,8 @@ import {
 	matchesField,
 	matchesValues,
 	serializeForm,
-} from '../../../src/core/helpers.js'
-import { PATTERN_LIMIT } from '../../../src/core/constants.js'
+} from '@src/core'
+import { PATTERN_LIMIT } from '@src/core'
 import { describe, expect, it } from 'vitest'
 
 describe('matchesField', () => {
@@ -83,6 +83,21 @@ describe('matchesField', () => {
 			matchesField({ control: 'file', name: 'file', multiple: true }, ['one.txt', 'two.txt']),
 		).toBe(true)
 		expect(matchesField({ control: 'file', name: 'file' }, [1])).toBe(false)
+	})
+
+	it('refuses disabled choices even when an open select otherwise admits the value', () => {
+		const choices = [
+			{ value: 'enabled', label: 'Enabled' },
+			{ value: 'disabled', label: 'Disabled', disabled: true },
+		]
+
+		expect(matchesField({ control: 'select', name: 'select', choices }, 'disabled')).toBe(false)
+		expect(
+			matchesField({ control: 'select', name: 'select', choices, open: true }, 'disabled'),
+		).toBe(false)
+		expect(matchesField({ control: 'checkbox', name: 'checkbox', choices }, ['disabled'])).toBe(
+			false,
+		)
 	})
 })
 
@@ -439,6 +454,21 @@ describe('form helpers', () => {
 			'hidden',
 			'locked',
 		])
+		expect(evaluateForm(schema, {}).every((error) => Object.isFrozen(error))).toBe(true)
+	})
+
+	it('reads only own answer keys during evaluation', () => {
+		const values = Object.create({ constructor: 'inherited' })
+		const errors = evaluateForm(
+			{
+				fields: [{ control: 'text', name: 'constructor', rule: { required: true } }],
+			},
+			values,
+		)
+
+		expect(errors).toStrictEqual([
+			{ field: 'constructor', message: 'This field is required', rule: 'required' },
+		])
 	})
 
 	it('computes only declared defaults and owns list defaults', () => {
@@ -462,6 +492,15 @@ describe('form helpers', () => {
 		expect(defaults).toStrictEqual({ text: '', number: 0, confirm: false, checkbox: ['one'] })
 		expect(Object.hasOwn(defaults, 'missing')).toBe(false)
 		expect(defaults.checkbox).not.toBe(selected)
+	})
+
+	it('defines prototype-shadowing defaults as own keys', () => {
+		const defaults = computeDefaults({
+			fields: [{ control: 'text', name: 'constructor', default: 'owned' }],
+		})
+
+		expect(defaults.constructor).toBe('owned')
+		expect(Object.hasOwn(defaults, 'constructor')).toBe(true)
 	})
 
 	it('compares key sets, scalar values, and list content in order', () => {
@@ -493,7 +532,7 @@ describe('form helpers', () => {
 		}
 		const serialized = serializeForm(schema)
 
-		expect(serialized).toStrictEqual({
+		expect(serialized).toEqual({
 			name: 'signup',
 			groups: [{ name: 'account', label: 'Account' }],
 			fields: [
@@ -507,11 +546,22 @@ describe('form helpers', () => {
 				{ control: 'file', name: 'files', accept: ['image/png', '.jpg'], multiple: true },
 			],
 		})
-		expect(JSON.parse(JSON.stringify(serialized))).toStrictEqual(serialized)
+		expect(JSON.parse(JSON.stringify(serialized))).toEqual(serialized)
 		expect(Object.keys(serialized)).toStrictEqual(['name', 'groups', 'fields'])
 		expect(JSON.stringify(serialized).indexOf('"choice"')).toBeLessThan(
 			JSON.stringify(serialized).indexOf('"files"'),
 		)
+		expect(Object.getPrototypeOf(serialized)).toBeNull()
+		expect(Object.isFrozen(serialized)).toBe(true)
+	})
+
+	it('omits a rule whose only authored member is custom', () => {
+		const serialized = serializeForm({
+			fields: [{ control: 'text', name: 'name', rule: { custom: () => 'Not serialized' } }],
+		})
+		const fields = serialized.fields
+
+		expect(fields).toEqual([{ control: 'text', name: 'name' }])
 	})
 
 	it('extracts referenced groups in first-reference field order', () => {
@@ -557,9 +607,16 @@ describe('auditSchema', () => {
 		expect(
 			auditSchema({
 				groups: [{ name: 'profile', label: 'Profile' }],
-				fields: [{ control: 'text', name: 'email', group: 'profile' }],
+				fields: [
+					{ control: 'text', name: 'email', group: 'profile' },
+					{ control: 'text', name: 'constructor' },
+					{ control: 'text', name: 'prototype' },
+				],
 			}),
 		).toStrictEqual([])
+		expect(auditSchema({ fields: [{ control: 'text', name: '__proto__' }] })).toStrictEqual([
+			'Field "__proto__" has a refused name',
+		])
 	})
 
 	it('reports invalid defaults and accepts matching defaults', () => {
@@ -613,6 +670,58 @@ describe('auditSchema', () => {
 		).toStrictEqual([])
 	})
 
+	it('reports defaults naming disabled choices', () => {
+		expect(
+			auditSchema({
+				fields: [
+					{
+						control: 'select',
+						name: 'select',
+						choices: [{ value: 'one', label: 'One', disabled: true }],
+						default: 'one',
+					},
+					{
+						control: 'checkbox',
+						name: 'checkbox',
+						choices: [{ value: 'one', label: 'One', disabled: true }],
+						default: ['one'],
+					},
+				],
+			}),
+		).toStrictEqual([
+			'Field "select" has an invalid default',
+			'Field "checkbox" has an invalid default',
+		])
+	})
+
+	it('reports duplicate choice values within each choice field', () => {
+		expect(
+			auditSchema({
+				fields: [
+					{
+						control: 'select',
+						name: 'select',
+						choices: [
+							{ value: 'one', label: 'First' },
+							{ value: 'one', label: 'Second' },
+						],
+					},
+					{
+						control: 'checkbox',
+						name: 'checkbox',
+						choices: [
+							{ value: 'one', label: 'First' },
+							{ value: 'one', label: 'Second' },
+						],
+					},
+				],
+			}),
+		).toStrictEqual([
+			'Field "select" offers choice "one" more than once',
+			'Field "checkbox" offers choice "one" more than once',
+		])
+	})
+
 	it('reports incompatible rules and accepts compatible rules', () => {
 		const invalid: FormSchema = {
 			fields: [
@@ -643,6 +752,30 @@ describe('auditSchema', () => {
 				],
 			}),
 		).toStrictEqual([])
+	})
+
+	it('reports bounds on every measureless control', () => {
+		expect(
+			auditSchema({
+				fields: [
+					{ control: 'color', name: 'color', rule: { minimum: 1, maximum: 2 } },
+					{ control: 'confirm', name: 'confirm', rule: { minimum: 1, maximum: 2 } },
+					{
+						control: 'select',
+						name: 'select',
+						choices: [],
+						rule: { minimum: 1, maximum: 2 },
+					},
+				],
+			}),
+		).toStrictEqual([
+			'Field "color" has minimum on color',
+			'Field "color" has maximum on color',
+			'Field "confirm" has minimum on confirm',
+			'Field "confirm" has maximum on confirm',
+			'Field "select" has minimum on select',
+			'Field "select" has maximum on select',
+		])
 	})
 
 	it('checks authored pattern validity and the exact length boundary', () => {

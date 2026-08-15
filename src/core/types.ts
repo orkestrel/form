@@ -1,4 +1,4 @@
-import type { JSONRecord, Result } from '@orkestrel/contract'
+import type { Result } from '@orkestrel/contract'
 import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
 
 /**
@@ -46,7 +46,8 @@ export type FieldValue = string | number | boolean | readonly string[]
  * A form's answers, keyed by field name.
  *
  * @remarks
- * A name with no key is a field nobody has answered. Disabled fields never appear.
+ * A name with no key is a field nobody has answered. A disabled field's value may appear so a
+ * renderer can show it, but the value is never evaluated or submitted.
  *
  * @example
  * ```ts
@@ -487,12 +488,3 @@ export interface FormInterface {
 	/** Tear the form down, abandoning it when it has not settled. */
 	destroy(): void
 }
-
-/**
- * What a form error carries beside its {@link FormErrorCode}.
- *
- * @remarks
- * The context is a JSON record, so an error survives serialization to a log or a wire
- * unchanged.
- */
-export interface FormErrorContext extends JSONRecord {}

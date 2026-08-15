@@ -1,4 +1,5 @@
-import type { FormErrorCode, FormErrorContext } from './types.js'
+import type { JSONRecord } from '@orkestrel/contract'
+import type { FormErrorCode } from './types.js'
 
 /** An error raised by the form domain. */
 export class FormError extends Error {
@@ -6,7 +7,7 @@ export class FormError extends Error {
 	readonly code: FormErrorCode
 
 	/** Structured values that locate or explain this failure. */
-	readonly context?: FormErrorContext
+	readonly context?: JSONRecord
 
 	/**
 	 * Create a form error.
@@ -15,7 +16,7 @@ export class FormError extends Error {
 	 * @param message - The human-readable failure text.
 	 * @param context - Optional structured failure details.
 	 */
-	constructor(code: FormErrorCode, message: string, context?: FormErrorContext) {
+	constructor(code: FormErrorCode, message: string, context?: JSONRecord) {
 		super(message)
 		this.name = 'FormError'
 		this.code = code

@@ -10,15 +10,14 @@ import type {
 } from './types.js'
 import {
 	attempt,
+	cloneJSONRecord,
 	isArray,
 	isBoolean,
 	isFiniteNumber,
 	isInteger,
-	isJSONValue,
-	isRecord,
 	isString,
-	parseJSON,
 } from '@orkestrel/contract'
+import { cloneValue } from './cloners.js'
 import {
 	ALPHANUMERIC_PATTERN,
 	COLOR_PATTERN,
@@ -60,13 +59,17 @@ export function matchesField(field: FormField, value: unknown): value is FieldVa
 		case 'select':
 			return (
 				isString(value) &&
-				(field.open === true || field.choices.some((choice) => choice.value === value))
+				!field.choices.some((choice) => choice.value === value && choice.disabled === true) &&
+				(field.open === true ||
+					field.choices.some((choice) => choice.value === value && choice.disabled !== true))
 			)
 		case 'checkbox':
 			return (
 				isArray(value) &&
 				value.every(
-					(entry) => isString(entry) && field.choices.some((choice) => choice.value === entry),
+					(entry) =>
+						isString(entry) &&
+						field.choices.some((choice) => choice.value === entry && choice.disabled !== true),
 				) &&
 				new Set(value).size === value.length
 			)
@@ -99,11 +102,13 @@ export function evaluateField(
 
 	if (value === undefined) {
 		if (rule?.required === true) {
-			errors.push({
-				field: field.name,
-				message: formatMessage('required', undefined, messages),
-				rule: 'required',
-			})
+			errors.push(
+				Object.freeze({
+					field: field.name,
+					message: formatMessage('required', undefined, messages),
+					rule: 'required',
+				}),
+			)
 		}
 		return Object.freeze(errors)
 	}
@@ -138,11 +143,13 @@ export function evaluateField(
 		}
 
 		if (failed) {
-			errors.push({
-				field: field.name,
-				message: formatMessage('minimum', rule.minimum, messages),
-				rule: 'minimum',
-			})
+			errors.push(
+				Object.freeze({
+					field: field.name,
+					message: formatMessage('minimum', rule.minimum, messages),
+					rule: 'minimum',
+				}),
+			)
 		}
 	}
 
@@ -174,11 +181,13 @@ export function evaluateField(
 		}
 
 		if (failed) {
-			errors.push({
-				field: field.name,
-				message: formatMessage('maximum', rule.maximum, messages),
-				rule: 'maximum',
-			})
+			errors.push(
+				Object.freeze({
+					field: field.name,
+					message: formatMessage('maximum', rule.maximum, messages),
+					rule: 'maximum',
+				}),
+			)
 		}
 	}
 
@@ -192,11 +201,13 @@ export function evaluateField(
 			!isFiniteNumber(multiple) ||
 			Math.abs(multiple - Math.round(multiple)) > 1e-9
 		) {
-			errors.push({
-				field: field.name,
-				message: formatMessage('step', rule.step, messages),
-				rule: 'step',
-			})
+			errors.push(
+				Object.freeze({
+					field: field.name,
+					message: formatMessage('step', rule.step, messages),
+					rule: 'step',
+				}),
+			)
 		}
 	}
 
@@ -211,69 +222,83 @@ export function evaluateField(
 			const pattern = rule.pattern
 
 			if (pattern.length > PATTERN_LIMIT) {
-				errors.push({
-					field: field.name,
-					message: formatMessage('pattern', undefined, messages),
-					rule: 'pattern',
-				})
+				errors.push(
+					Object.freeze({
+						field: field.name,
+						message: formatMessage('pattern', undefined, messages),
+						rule: 'pattern',
+					}),
+				)
 			} else {
 				const outcome = attempt(() => new RegExp(pattern).test(value))
 
 				if (!outcome.success || !outcome.value) {
-					errors.push({
-						field: field.name,
-						message: formatMessage('pattern', undefined, messages),
-						rule: 'pattern',
-					})
+					errors.push(
+						Object.freeze({
+							field: field.name,
+							message: formatMessage('pattern', undefined, messages),
+							rule: 'pattern',
+						}),
+					)
 				}
 			}
 		}
 
 		if (rule.email === true && !EMAIL_PATTERN.test(value)) {
-			errors.push({
-				field: field.name,
-				message: formatMessage('email', undefined, messages),
-				rule: 'email',
-			})
+			errors.push(
+				Object.freeze({
+					field: field.name,
+					message: formatMessage('email', undefined, messages),
+					rule: 'email',
+				}),
+			)
 		}
 
 		if (rule.url === true && !URL_PATTERN.test(value)) {
-			errors.push({
-				field: field.name,
-				message: formatMessage('url', undefined, messages),
-				rule: 'url',
-			})
+			errors.push(
+				Object.freeze({
+					field: field.name,
+					message: formatMessage('url', undefined, messages),
+					rule: 'url',
+				}),
+			)
 		}
 
 		if (rule.alphanumeric === true && !ALPHANUMERIC_PATTERN.test(value)) {
-			errors.push({
-				field: field.name,
-				message: formatMessage('alphanumeric', undefined, messages),
-				rule: 'alphanumeric',
-			})
+			errors.push(
+				Object.freeze({
+					field: field.name,
+					message: formatMessage('alphanumeric', undefined, messages),
+					rule: 'alphanumeric',
+				}),
+			)
 		}
 
 		if (rule.integer === true && !INTEGER_PATTERN.test(value)) {
-			errors.push({
-				field: field.name,
-				message: formatMessage('integer', undefined, messages),
-				rule: 'integer',
-			})
+			errors.push(
+				Object.freeze({
+					field: field.name,
+					message: formatMessage('integer', undefined, messages),
+					rule: 'integer',
+				}),
+			)
 		}
 	}
 
 	if (field.control === 'number' && rule.integer === true && !isInteger(value)) {
-		errors.push({
-			field: field.name,
-			message: formatMessage('integer', undefined, messages),
-			rule: 'integer',
-		})
+		errors.push(
+			Object.freeze({
+				field: field.name,
+				message: formatMessage('integer', undefined, messages),
+				rule: 'integer',
+			}),
+		)
 	}
 
 	if (rule.custom !== undefined) {
 		const result = rule.custom(value, values)
 
-		if (isString(result)) errors.push({ field: field.name, message: result })
+		if (isString(result)) errors.push(Object.freeze({ field: field.name, message: result }))
 	}
 
 	return Object.freeze(errors)
@@ -296,7 +321,8 @@ export function evaluateForm(
 
 	for (const field of schema.fields) {
 		if (field.disabled !== true) {
-			errors.push(...evaluateField(field, values[field.name], values, messages))
+			const value = Object.hasOwn(values, field.name) ? values[field.name] : undefined
+			errors.push(...evaluateField(field, value, values, messages))
 		}
 	}
 
@@ -316,7 +342,12 @@ export function computeDefaults(schema: FormSchema): FormValues {
 		switch (field.control) {
 			case 'checkbox':
 				if (field.default !== undefined) {
-					defaults[field.name] = Object.freeze(field.default.slice())
+					Object.defineProperty(defaults, field.name, {
+						value: cloneValue(field.default),
+						enumerable: true,
+						configurable: true,
+						writable: true,
+					})
 				}
 				break
 			case 'password':
@@ -331,7 +362,14 @@ export function computeDefaults(schema: FormSchema): FormValues {
 			case 'color':
 			case 'confirm':
 			case 'select':
-				if (field.default !== undefined) defaults[field.name] = field.default
+				if (field.default !== undefined) {
+					Object.defineProperty(defaults, field.name, {
+						value: field.default,
+						enumerable: true,
+						configurable: true,
+						writable: true,
+					})
+				}
 				break
 		}
 	}
@@ -352,7 +390,7 @@ export function matchesValues(a: FormValues, b: FormValues): boolean {
 	if (keys.length !== Object.keys(b).length) return false
 
 	return keys.every((key) => {
-		if (!Object.hasOwn(b, key)) return false
+		if (!Object.hasOwn(a, key) || !Object.hasOwn(b, key)) return false
 
 		const left = a[key]
 		const right = b[key]
@@ -480,16 +518,13 @@ export function serializeForm(schema: FormSchema): JSONRecord {
 			if (field.rule.url !== undefined) rule.url = field.rule.url
 			if (field.rule.integer !== undefined) rule.integer = field.rule.integer
 			if (field.rule.alphanumeric !== undefined) rule.alphanumeric = field.rule.alphanumeric
-			entry.rule = rule
+			if (Object.keys(rule).length > 0) entry.rule = rule
 		}
 
 		return entry
 	})
 
-	const serialized = JSON.stringify(output)
-	const projected = serialized === undefined ? undefined : parseJSON(serialized)
-
-	return isJSONValue(projected) && isRecord(projected) ? projected : {}
+	return cloneJSONRecord(output)
 }
 
 /**
@@ -533,6 +568,7 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 
 	for (const field of schema.fields) {
 		if (field.name.length === 0) faults.push('Field "" has an empty name')
+		if (field.name === '__proto__') faults.push('Field "__proto__" has a refused name')
 		if (fields.has(field.name)) faults.push(`Field "${field.name}" is declared more than once`)
 		fields.add(field.name)
 
@@ -560,16 +596,33 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 				break
 		}
 
+		if (field.control === 'select' || field.control === 'checkbox') {
+			const choices = new Set<string>()
+
+			for (const choice of field.choices) {
+				if (choices.has(choice.value)) {
+					faults.push(`Field "${field.name}" offers choice "${choice.value}" more than once`)
+				}
+				choices.add(choice.value)
+			}
+		}
+
 		const rule = field.rule
 		if (rule === undefined) continue
 
 		const temporal =
 			field.control === 'date' || field.control === 'time' || field.control === 'datetime'
+		const measureless =
+			field.control === 'color' || field.control === 'confirm' || field.control === 'select'
 
-		if (isString(rule.minimum) && !temporal) {
+		if (rule.minimum !== undefined && measureless) {
+			faults.push(`Field "${field.name}" has minimum on ${field.control}`)
+		} else if (isString(rule.minimum) && !temporal) {
 			faults.push(`Field "${field.name}" has a string minimum on ${field.control}`)
 		}
-		if (isString(rule.maximum) && !temporal) {
+		if (rule.maximum !== undefined && measureless) {
+			faults.push(`Field "${field.name}" has maximum on ${field.control}`)
+		} else if (isString(rule.maximum) && !temporal) {
 			faults.push(`Field "${field.name}" has a string maximum on ${field.control}`)
 		}
 		if (isFiniteNumber(rule.minimum) && temporal) {

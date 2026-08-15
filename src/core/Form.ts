@@ -1,8 +1,6 @@
 import type { EmitterInterface } from '@orkestrel/emitter'
 import type {
-	FieldChoice,
 	FieldError,
-	FieldRule,
 	FieldRuleName,
 	FieldValue,
 	FormEventMap,
@@ -16,6 +14,7 @@ import type {
 } from './types.js'
 import { isArray, isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
+import { cloneFormSchema, cloneValue } from './cloners.js'
 import { FormError } from './errors.js'
 import {
 	auditSchema,
@@ -59,6 +58,8 @@ export class Form implements FormInterface {
 	readonly #resolvers = Promise.withResolvers<FormValues>()
 	#errors: readonly FieldError[] = Object.freeze([])
 	#status: FormStatus = 'editing'
+	#emissions = 0
+	#pending = false
 
 	/**
 	 * Open a form against a schema.
@@ -80,11 +81,20 @@ export class Form implements FormInterface {
 			})
 		}
 
-		this.#schema = this.#ownSchema(schema)
+		this.#schema = cloneFormSchema(schema)
 		this.#messages =
 			options?.messages === undefined ? undefined : Object.freeze({ ...options.messages })
 
-		const baseline: Record<string, FieldValue> = { ...computeDefaults(this.#schema) }
+		const baseline: Record<string, FieldValue> = {}
+
+		for (const [name, value] of Object.entries(computeDefaults(this.#schema))) {
+			Object.defineProperty(baseline, name, {
+				value,
+				enumerable: true,
+				configurable: true,
+				writable: true,
+			})
+		}
 
 		for (const [name, value] of Object.entries(options?.values ?? {})) {
 			const field = this.#requireField(name)
@@ -97,11 +107,24 @@ export class Form implements FormInterface {
 				)
 			}
 
-			baseline[name] = this.#ownValue(value)
+			Object.defineProperty(baseline, name, {
+				value: cloneValue(value),
+				enumerable: true,
+				configurable: true,
+				writable: true,
+			})
 		}
 
 		this.#baseline = Object.freeze(baseline)
-		this.#values = { ...baseline }
+		this.#values = {}
+		for (const [name, value] of Object.entries(baseline)) {
+			Object.defineProperty(this.#values, name, {
+				value,
+				enumerable: true,
+				configurable: true,
+				writable: true,
+			})
+		}
 		// Nobody has to await `answer`. Without a rejection handler of its own, destroying an
 		// unawaited form would reject a promise no one is watching and take the host down with it.
 		this.#resolvers.promise.catch(() => undefined)
@@ -124,7 +147,20 @@ export class Form implements FormInterface {
 
 	/** The answers held right now. */
 	get values(): FormValues {
-		return Object.freeze({ ...this.#values })
+		const values: Record<string, FieldValue> = {}
+
+		for (const name of Object.keys(this.#values)) {
+			if (Object.hasOwn(this.#values, name)) {
+				Object.defineProperty(values, name, {
+					value: this.#values[name],
+					enumerable: true,
+					configurable: true,
+					writable: true,
+				})
+			}
+		}
+
+		return Object.freeze(values)
 	}
 
 	/** Every error the current answers carry. */
@@ -219,12 +255,18 @@ export class Form implements FormInterface {
 		for (const [name, answer] of entries) {
 			if (this.#differs(name, answer)) moved.push(name)
 			if (answer === undefined) delete this.#values[name]
-			else this.#values[name] = this.#ownValue(answer)
+			else {
+				Object.defineProperty(this.#values, name, {
+					value: cloneValue(answer),
+					enumerable: true,
+					configurable: true,
+					writable: true,
+				})
+			}
 			this.#invalidations.delete(name)
 		}
 
-		for (const name of moved) this.#emitter.emit('fill', name, this.#values[name])
-		if (this.#evaluate()) this.#emitter.emit('validate', this.#errors)
+		this.#emitFill(moved)
 	}
 
 	/**
@@ -299,7 +341,14 @@ export class Form implements FormInterface {
 		this.#gate()
 
 		for (const name of Object.keys(this.#values)) delete this.#values[name]
-		for (const [name, value] of Object.entries(this.#baseline)) this.#values[name] = value
+		for (const [name, value] of Object.entries(this.#baseline)) {
+			Object.defineProperty(this.#values, name, {
+				value,
+				enumerable: true,
+				configurable: true,
+				writable: true,
+			})
+		}
 
 		this.#touched.clear()
 		this.#invalidations.clear()
@@ -318,23 +367,19 @@ export class Form implements FormInterface {
 	 * announces nothing. Every getter keeps answering afterwards; every write is refused.
 	 */
 	destroy(): void {
-		if (this.#status === 'editing') {
-			this.#status = 'abandoned'
-			this.#resolvers.reject(new FormError('ABANDONED', 'The form was destroyed before it settled'))
-			this.#emitter.emit('abandon')
-		}
+		if (this.#pending || this.#emitter.destroyed) return
 
-		this.#emitter.destroy()
+		this.#pending = true
+		if (this.#emissions === 0) this.#teardown()
 	}
 
-	// Refuse a write to a form that has ended. A destroyed form reads as abandoned whichever end
-	// it reached, so a settled form that is then destroyed refuses with ABANDONED, not SETTLED.
+	// Refuse a write to a form that settled before considering whether teardown was requested.
 	#gate(): void {
-		if (this.#status === 'abandoned' || this.#emitter.destroyed) {
-			throw new FormError('ABANDONED', 'The form was abandoned and cannot change')
-		}
 		if (this.#status === 'settled') {
 			throw new FormError('SETTLED', 'The form has settled and cannot change')
+		}
+		if (this.#status === 'abandoned' || this.#pending || this.#emitter.destroyed) {
+			throw new FormError('ABANDONED', 'The form was abandoned and cannot change')
 		}
 	}
 
@@ -354,7 +399,11 @@ export class Form implements FormInterface {
 	#evaluate(): boolean {
 		const errors: FieldError[] = [...evaluateForm(this.#schema, this.values, this.#messages)]
 
-		for (const [field, message] of this.#invalidations) errors.push({ field, message })
+		for (const [field, message] of this.#invalidations) {
+			if (this.field(field)?.disabled !== true) {
+				errors.push(Object.freeze({ field, message }))
+			}
+		}
 
 		const previous = this.#errors
 		const next: readonly FieldError[] = Object.freeze(errors)
@@ -375,12 +424,21 @@ export class Form implements FormInterface {
 	}
 
 	#differs(name: string, value: FieldValue | undefined): boolean {
-		const current = this.#values[name]
+		const current = Object.hasOwn(this.#values, name) ? this.#values[name] : undefined
 
 		if (value === undefined) return current !== undefined
 		if (current === undefined) return true
 
-		return !matchesValues({ [name]: current }, { [name]: value })
+		if (isArray(current) || isArray(value)) {
+			return (
+				!isArray(current) ||
+				!isArray(value) ||
+				current.length !== value.length ||
+				current.some((entry, index) => entry !== value[index])
+			)
+		}
+
+		return current !== value
 	}
 
 	// The answers a submit hands over: every enabled field somebody has answered.
@@ -388,63 +446,42 @@ export class Form implements FormInterface {
 		const answers: Record<string, FieldValue> = {}
 
 		for (const field of this.#schema.fields) {
-			const value = this.#values[field.name]
-			if (field.disabled !== true && value !== undefined) answers[field.name] = value
+			const value = Object.hasOwn(this.#values, field.name) ? this.#values[field.name] : undefined
+			if (field.disabled !== true && value !== undefined) {
+				Object.defineProperty(answers, field.name, {
+					value,
+					enumerable: true,
+					configurable: true,
+					writable: true,
+				})
+			}
 		}
 
 		return Object.freeze(answers)
 	}
 
-	#ownSchema(schema: FormSchema): FormSchema {
-		const groups = schema.groups
+	#emitFill(names: readonly string[]): void {
+		this.#emissions += 1
 
-		return Object.freeze({
-			...schema,
-			...(groups === undefined
-				? {}
-				: { groups: Object.freeze(groups.map((group) => Object.freeze({ ...group }))) }),
-			fields: Object.freeze(schema.fields.map((field) => this.#ownField(field))),
-		})
-	}
-
-	#ownField(field: FormField): FormField {
-		const rule: { rule?: Readonly<FieldRule> } =
-			field.rule === undefined ? {} : { rule: Object.freeze({ ...field.rule }) }
-
-		switch (field.control) {
-			case 'select':
-				return Object.freeze({ ...field, ...rule, choices: this.#ownChoices(field.choices) })
-			case 'checkbox':
-				return Object.freeze({
-					...field,
-					...rule,
-					choices: this.#ownChoices(field.choices),
-					...(field.default === undefined ? {} : { default: Object.freeze(field.default.slice()) }),
-				})
-			case 'file':
-				return Object.freeze({
-					...field,
-					...rule,
-					...(field.accept === undefined ? {} : { accept: Object.freeze(field.accept.slice()) }),
-				})
-			case 'text':
-			case 'editor':
-			case 'password':
-			case 'number':
-			case 'date':
-			case 'time':
-			case 'datetime':
-			case 'color':
-			case 'confirm':
-				return Object.freeze({ ...field, ...rule })
+		try {
+			for (const name of names) {
+				const value = Object.hasOwn(this.#values, name) ? this.#values[name] : undefined
+				this.#emitter.emit('fill', name, value)
+			}
+			if (this.#evaluate()) this.#emitter.emit('validate', this.#errors)
+		} finally {
+			this.#emissions -= 1
+			if (this.#emissions === 0 && this.#pending) this.#teardown()
 		}
 	}
 
-	#ownChoices(choices: readonly FieldChoice[]): readonly FieldChoice[] {
-		return Object.freeze(choices.map((choice) => Object.freeze({ ...choice })))
-	}
+	#teardown(): void {
+		if (this.#status === 'editing') {
+			this.#status = 'abandoned'
+			this.#resolvers.reject(new FormError('ABANDONED', 'The form was destroyed before it settled'))
+			this.#emitter.emit('abandon')
+		}
 
-	#ownValue(value: FieldValue): FieldValue {
-		return isArray(value) ? Object.freeze(value.slice()) : value
+		this.#emitter.destroy()
 	}
 }

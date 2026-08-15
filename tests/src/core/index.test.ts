@@ -1,6 +1,7 @@
 import type {
 	CheckboxField,
 	FieldRuleName,
+	FormError,
 	FormEventMap,
 	FormOptions,
 	FormResult,
@@ -98,7 +99,6 @@ describe('src core entry', () => {
 			'COLOR_PATTERN',
 			'DATETIME_PATTERN',
 			'DATE_PATTERN',
-			'DEFAULT_MASK',
 			'EMAIL_PATTERN',
 			'FIELD_CONTROLS',
 			'FORM_STATUSES',
@@ -110,6 +110,10 @@ describe('src core entry', () => {
 			'TIME_PATTERN',
 			'URL_PATTERN',
 			'auditSchema',
+			'cloneChoices',
+			'cloneFormField',
+			'cloneFormSchema',
+			'cloneValue',
 			'computeDefaults',
 			'createForm',
 			'evaluateField',
@@ -191,6 +195,7 @@ describe('src core entry', () => {
 	})
 
 	it('narrows a form result to values or to field errors', () => {
+		const context: NonNullable<FormError['context']> = { field: 'email' }
 		const passed: FormResult = { success: true, value: { email: 'ada@example.com' } }
 		const failed: FormResult = {
 			success: false,
@@ -201,5 +206,6 @@ describe('src core entry', () => {
 		expect(failed.success ? [] : failed.error.map((error) => error.rule)).toStrictEqual([
 			'required',
 		])
+		expect(context).toStrictEqual({ field: 'email' })
 	})
 })

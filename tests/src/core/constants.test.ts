@@ -3,7 +3,6 @@ import {
 	COLOR_PATTERN,
 	DATE_PATTERN,
 	DATETIME_PATTERN,
-	DEFAULT_MASK,
 	EMAIL_PATTERN,
 	FIELD_CONTROLS,
 	FORM_STATUSES,
@@ -12,7 +11,7 @@ import {
 	RULE_MESSAGES,
 	TIME_PATTERN,
 	URL_PATTERN,
-} from '../../../src/core/constants.js'
+} from '@src/core'
 import { describe, expect, it } from 'vitest'
 
 describe('core constants', () => {
@@ -72,6 +71,5 @@ describe('core constants', () => {
 		expect(DATETIME_PATTERN.test('2026-08-15T23:59')).toBe(true)
 		expect(DATETIME_PATTERN.test('2026-08-15 23:59')).toBe(false)
 		expect(PATTERN_LIMIT).toBe(256)
-		expect(DEFAULT_MASK).toBe('*')
 	})
 })

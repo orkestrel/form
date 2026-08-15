@@ -1,4 +1,4 @@
-import type { FormSchema } from '../../../src/core/types.js'
+import type { FormSchema } from '@src/core'
 import {
 	isFieldChoice,
 	isFieldControl,
@@ -10,8 +10,8 @@ import {
 	isFormSchema,
 	isFormStatus,
 	isFormValues,
-} from '../../../src/core/validators.js'
-import { parseForm } from '../../../src/core/parsers.js'
+} from '@src/core'
+import { parseForm } from '@src/core'
 import { describe, expect, it } from 'vitest'
 
 describe('structural guards', () => {
@@ -98,6 +98,20 @@ describe('structural guards', () => {
 		expect(() => isFormField(hostile)).not.toThrow()
 		expect(isFormField(hostile)).toBe(false)
 		expect(isFormSchema(schema)).toBe(true)
+	})
+
+	it('contains a throwing field-choice property read', () => {
+		const hostile = new Proxy(
+			{ value: 'one', label: 'One' },
+			{
+				get: () => {
+					throw new Error('hostile choice')
+				},
+			},
+		)
+
+		expect(() => isFieldChoice(hostile)).not.toThrow()
+		expect(isFieldChoice(hostile)).toBe(false)
 	})
 })
 

@@ -63,6 +63,3 @@ export const DATETIME_PATTERN =
 
 /** The maximum accepted source length for an authored regular expression. */
 export const PATTERN_LIMIT = 256
-
-/** The default character used to mask password text. */
-export const DEFAULT_MASK = '*'

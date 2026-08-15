@@ -1,9 +1,11 @@
-import { FormError, isFormError } from '../../../src/core/errors.js'
+import type { JSONRecord } from '@orkestrel/contract'
+import { FormError, isFormError } from '@src/core'
 import { describe, expect, it } from 'vitest'
 
 describe('FormError', () => {
 	it('retains its code, message, context, and stable name', () => {
-		const error = new FormError('FIELD', 'The field does not exist', { field: 'missing' })
+		const context: JSONRecord = { field: 'missing' }
+		const error = new FormError('FIELD', 'The field does not exist', context)
 
 		expect(error).toBeInstanceOf(Error)
 		expect(error.name).toBe('FormError')

@@ -118,6 +118,33 @@ describe('Form construction', () => {
 		})
 	})
 
+	it('treats prototype-shadowing field names as ordinary own answer keys', () => {
+		const form = new Form({
+			fields: [
+				{ control: 'text', name: 'constructor', rule: { required: true } },
+				{ control: 'text', name: 'prototype' },
+			],
+		})
+
+		expect(form.errors).toStrictEqual([
+			{ field: 'constructor', message: 'This field is required', rule: 'required' },
+		])
+
+		form.fill({ constructor: 'built', prototype: 'owned' })
+
+		expect(form.values).toStrictEqual({ constructor: 'built', prototype: 'owned' })
+		expect(Object.hasOwn(form.values, 'constructor')).toBe(true)
+	})
+
+	it('refuses the __proto__ field name at the schema door', () => {
+		const outcome = attempt(
+			() => new Form({ fields: [{ control: 'text', name: '__proto__', default: 'owned' }] }),
+		)
+		const thrown = outcome.success ? undefined : outcome.error
+
+		expect(isFormError(thrown) ? thrown.code : undefined).toBe('SCHEMA')
+	})
+
 	it('overlays seeded values onto the schema defaults as the baseline', () => {
 		const form = new Form(SCHEMA, { values: { nickname: 'grace', email: 'ada@example.com' } })
 
@@ -169,6 +196,7 @@ describe('Form state', () => {
 		expect(Object.isFrozen(form.values)).toBe(true)
 		expect(form.touched).not.toBe(form.touched)
 		expect(Object.isFrozen(form.errors)).toBe(true)
+		expect(form.errors.every((error) => Object.isFrozen(error))).toBe(true)
 	})
 
 	it('derives validity from the current error list', () => {
@@ -393,6 +421,18 @@ describe('Form invalidate', () => {
 
 		expect(form.errors).toStrictEqual(BIRTH)
 	})
+
+	it('stores no external failure for a disabled field', () => {
+		const form = new Form(SCHEMA)
+
+		form.invalidate('referral', 'That referral is unavailable')
+
+		expect(form.errors).toStrictEqual(BIRTH)
+		form.fill('referral', 'other')
+		form.touch('referral')
+		expect(form.values.referral).toBe('other')
+		expect(form.touched.has('referral')).toBe(true)
+	})
 })
 
 describe('Form submit', () => {
@@ -535,7 +575,7 @@ describe('Form destroy', () => {
 		expect(form.emitter.destroyed).toBe(true)
 	})
 
-	it('refuses every write once destroyed, whichever end the form reached', () => {
+	it('refuses abandoned forms as ABANDONED and settled forms as SETTLED after destroy', () => {
 		const abandoned = new Form(SCHEMA)
 		abandoned.destroy()
 
@@ -552,12 +592,45 @@ describe('Form destroy', () => {
 			'ABANDONED',
 		])
 		expect(refusalsOf(settled)).toStrictEqual([
-			'ABANDONED',
-			'ABANDONED',
-			'ABANDONED',
-			'ABANDONED',
-			'ABANDONED',
+			'SETTLED',
+			'SETTLED',
+			'SETTLED',
+			'SETTLED',
+			'SETTLED',
 		])
+	})
+
+	it('finishes a fill event batch before applying listener-requested teardown', async () => {
+		const events: string[] = []
+		const refusals: string[] = []
+		const form = new Form(
+			{
+				fields: [
+					{ control: 'text', name: 'first' },
+					{ control: 'text', name: 'second' },
+				],
+			},
+			{
+				on: {
+					fill: (name) => {
+						events.push(name)
+						form.destroy()
+						const outcome = attempt(() => form.touch(name))
+						if (!outcome.success && isFormError(outcome.error)) {
+							refusals.push(outcome.error.code)
+						}
+					},
+				},
+			},
+		)
+
+		form.fill({ first: 'one', second: 'two' })
+
+		expect(events).toStrictEqual(['first', 'second'])
+		expect(refusals).toStrictEqual(['ABANDONED', 'ABANDONED'])
+		expect(form.status).toBe('abandoned')
+		expect(form.emitter.destroyed).toBe(true)
+		await expect(form.answer).rejects.toMatchObject({ code: 'ABANDONED' })
 	})
 
 	it('keeps every getter answering on the state the form ended with', () => {

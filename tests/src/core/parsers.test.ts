@@ -1,5 +1,5 @@
-import type { FormField, FormSchema } from '../../../src/core/types.js'
-import { parseForm, parseValue, parseValues } from '../../../src/core/parsers.js'
+import type { FormField, FormSchema } from '@src/core'
+import { parseForm, parseValue, parseValues } from '@src/core'
 import { describe, expect, it } from 'vitest'
 
 describe('parseValue', () => {
@@ -20,6 +20,24 @@ describe('parseValue', () => {
 		expect(parseValue(number, ' 4.5 ')).toBe(4.5)
 		expect(parseValue(confirm, 'true')).toBe(true)
 		expect(parseValue(confirm, 'false')).toBe(false)
+	})
+
+	it('owns and freezes list values', () => {
+		const checkbox: FormField = {
+			control: 'checkbox',
+			name: 'topics',
+			choices: [
+				{ value: 'news', label: 'News' },
+				{ value: 'events', label: 'Events' },
+			],
+		}
+		const topics = ['news']
+		const value = parseValue(checkbox, topics)
+
+		topics.push('events')
+
+		expect(value).toStrictEqual(['news'])
+		expect(Object.isFrozen(value)).toBe(true)
 	})
 
 	it('refuses values outside the exact coercion contract', () => {
@@ -67,6 +85,28 @@ describe('parseValues', () => {
 		expect(parseValues(schema, { age: 'not a number', ready: true })).toBeUndefined()
 		expect(parseValues(schema, [])).toBeUndefined()
 	})
+
+	it('owns every parsed list value', () => {
+		const schema: FormSchema = {
+			fields: [
+				{
+					control: 'checkbox',
+					name: 'topics',
+					choices: [
+						{ value: 'news', label: 'News' },
+						{ value: 'events', label: 'Events' },
+					],
+				},
+			],
+		}
+		const topics = ['news']
+		const values = parseValues(schema, { topics })
+
+		topics.push('events')
+
+		expect(values).toStrictEqual({ topics: ['news'] })
+		expect(Object.isFrozen(values?.topics)).toBe(true)
+	})
 })
 
 describe('parseForm', () => {
@@ -77,7 +117,7 @@ describe('parseForm', () => {
 		}
 		const parsed = parseForm(schema)
 
-		expect(parsed?.fields[0]?.rule).toStrictEqual({ required: true })
+		expect(parsed?.fields[0]?.rule).toEqual({ required: true })
 		expect(schema.fields[0]?.rule?.custom).toBe(custom)
 	})
 
@@ -105,7 +145,7 @@ describe('parseForm', () => {
 			field.default.push('other')
 		}
 
-		expect(parsed).toStrictEqual({
+		expect(parsed).toEqual({
 			groups: [{ name: 'profile', label: 'Profile' }],
 			fields: [
 				{
@@ -117,6 +157,7 @@ describe('parseForm', () => {
 				},
 			],
 		})
+		expect(Object.getPrototypeOf(parsed)).toBeNull()
 		expect(parseForm({ fields: [], extra: true })).toBeUndefined()
 		expect(
 			parseForm({ fields: [{ control: 'date', name: 'date', default: 'not-a-date' }] }),
