@@ -2,9 +2,9 @@
 // this repo's own `guides/README.md` manifest. The five constants below are this
 // package's own, and are the only part a sibling package changes.
 //
-// Parity proves a documented name resolves. It cannot prove a sentence about behavior
-// is true, so the flagship fences of `guides/form.md` are transcribed at the bottom of
-// this file and run against the real source. Change a fence, change its transcription.
+// The suite transcribes and executes the flagship fence set from `guides/form.md`. It name-checks
+// and parity-checks the remaining fences but does not run them. Change a flagship fence, change its
+// transcription.
 
 import { describe, expect, it } from 'vitest'
 import {
@@ -33,6 +33,7 @@ import type {
 } from '@src/core'
 import {
 	auditSchema,
+	appliesRule,
 	cloneChoices,
 	cloneFormField,
 	cloneFormSchema,
@@ -56,6 +57,7 @@ import {
 	isFormStatus,
 	isFormValues,
 	matchesField,
+	matchesValue,
 	matchesValues,
 	parseForm,
 	parseValue,
@@ -87,7 +89,7 @@ const MODULES = Object.freeze({
 const INTERNAL: readonly string[] = Object.freeze([])
 
 /** Root-level files this package's guides link to. `readInventory` walks directories only. */
-const ROOT_FILES = Object.freeze(['AGENTS.md'])
+const ROOT_FILES = Object.freeze(['AGENTS.md', 'README.md'])
 
 const root = new URL('../', import.meta.url)
 const files: Record<string, string> = {
@@ -99,6 +101,10 @@ const manifest = parseManifest(
 	'guides',
 )
 const sources = createSourceManager({ files, modules: MODULES })
+
+it('loads the root README into guide parity', () => {
+	expect(files['README.md']).toBeDefined()
+})
 
 it('manifest lists at least one guide', () => {
 	expect(manifest.length).toBeGreaterThan(0)
@@ -529,6 +535,8 @@ describe('form.md fences', () => {
 		expect(computeDefaults(schema)).toStrictEqual({ email: 'ada@example.com', terms: false })
 		expect(extractGroups(schema)).toStrictEqual([{ name: 'account', label: 'Account' }])
 		expect(evaluateForm(schema, {})).toStrictEqual([])
+		expect(appliesRule('number', 'step')).toBe(true)
+		expect(matchesValue(['a'], ['a'])).toBe(true)
 		expect(matchesValues({ topics: ['a'] }, { topics: ['a'] })).toBe(true)
 	})
 
@@ -551,5 +559,43 @@ describe('form.md fences', () => {
 
 		form.fill('email', 'ada@example.com')
 		expect(form.submit().success).toBe(true)
+	})
+})
+
+describe('README.md Usage fence', () => {
+	it('executes its three value claims', async () => {
+		const form = createForm({
+			label: 'Sign up',
+			fields: [
+				{ control: 'text', name: 'email', label: 'Email', rule: { required: true, email: true } },
+				{
+					control: 'password',
+					name: 'secret',
+					label: 'Password',
+					rule: { required: true, minimum: 12 },
+				},
+				{
+					control: 'confirm',
+					name: 'terms',
+					label: 'I accept the terms',
+					rule: { required: true },
+				},
+			],
+		})
+		const parked = form.answer
+
+		form.fill({ email: 'ada@example.com', secret: 'correct horse battery' })
+		expect(form.errors).toStrictEqual([
+			{ field: 'terms', message: 'This field is required', rule: 'required' },
+		])
+
+		form.fill('terms', true)
+		const result = form.submit()
+		expect(result.success).toBe(true)
+		await expect(parked).resolves.toStrictEqual({
+			email: 'ada@example.com',
+			secret: 'correct horse battery',
+			terms: true,
+		})
 	})
 })

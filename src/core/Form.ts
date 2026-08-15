@@ -12,7 +12,7 @@ import type {
 	FormStatus,
 	FormValues,
 } from './types.js'
-import { isArray, isString } from '@orkestrel/contract'
+import { isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
 import { cloneFormSchema, cloneValue } from './cloners.js'
 import { FormError } from './errors.js'
@@ -21,6 +21,7 @@ import {
 	computeDefaults,
 	evaluateForm,
 	matchesField,
+	matchesValue,
 	matchesValues,
 } from './helpers.js'
 import { isFormSchema } from './validators.js'
@@ -149,15 +150,14 @@ export class Form implements FormInterface {
 	get values(): FormValues {
 		const values: Record<string, FieldValue> = {}
 
+		// Object.keys supplies the own enumerable answer population used here and by clear().
 		for (const name of Object.keys(this.#values)) {
-			if (Object.hasOwn(this.#values, name)) {
-				Object.defineProperty(values, name, {
-					value: this.#values[name],
-					enumerable: true,
-					configurable: true,
-					writable: true,
-				})
-			}
+			Object.defineProperty(values, name, {
+				value: this.#values[name],
+				enumerable: true,
+				configurable: true,
+				writable: true,
+			})
 		}
 
 		return Object.freeze(values)
@@ -250,23 +250,29 @@ export class Form implements FormInterface {
 			}
 		}
 
-		const moved: string[] = []
+		this.#emitBatch(() => {
+			const moved: string[] = []
 
-		for (const [name, answer] of entries) {
-			if (this.#differs(name, answer)) moved.push(name)
-			if (answer === undefined) delete this.#values[name]
-			else {
-				Object.defineProperty(this.#values, name, {
-					value: cloneValue(answer),
-					enumerable: true,
-					configurable: true,
-					writable: true,
-				})
+			for (const [name, answer] of entries) {
+				if (this.#differs(name, answer)) moved.push(name)
+				if (answer === undefined) delete this.#values[name]
+				else {
+					Object.defineProperty(this.#values, name, {
+						value: cloneValue(answer),
+						enumerable: true,
+						configurable: true,
+						writable: true,
+					})
+				}
+				this.#invalidations.delete(name)
 			}
-			this.#invalidations.delete(name)
-		}
 
-		this.#emitFill(moved)
+			for (const name of moved) {
+				const answer = Object.hasOwn(this.#values, name) ? this.#values[name] : undefined
+				this.#emitter.emit('fill', name, answer)
+			}
+			if (this.#evaluate()) this.#emitter.emit('validate', this.#errors)
+		})
 	}
 
 	/**
@@ -296,8 +302,10 @@ export class Form implements FormInterface {
 	invalidate(name: string, message: string): void {
 		this.#gate()
 		this.#requireField(name)
-		this.#invalidations.set(name, message)
-		if (this.#evaluate()) this.#emitter.emit('validate', this.#errors)
+		this.#emitBatch(() => {
+			this.#invalidations.set(name, message)
+			if (this.#evaluate()) this.#emitter.emit('validate', this.#errors)
+		})
 	}
 
 	/**
@@ -312,51 +320,56 @@ export class Form implements FormInterface {
 	submit(): FormResult {
 		this.#gate()
 
-		const changed = this.#evaluate()
-		const stopped = this.#errors.length > 0
+		return this.#emitBatch(() => {
+			const changed = this.#evaluate()
+			const stopped = this.#errors.length > 0
 
-		if (stopped) {
-			for (const field of this.#schema.fields) {
-				if (field.disabled !== true) this.#touched.add(field.name)
+			if (stopped) {
+				for (const field of this.#schema.fields) {
+					if (field.disabled !== true) this.#touched.add(field.name)
+				}
 			}
-		}
 
-		if (changed) this.#emitter.emit('validate', this.#errors)
-		if (stopped) return { success: false, error: this.#errors }
+			if (changed) this.#emitter.emit('validate', this.#errors)
+			if (stopped) return { success: false, error: this.#errors }
 
-		const answers = this.#snapshot()
-		this.#status = 'settled'
-		this.#resolvers.resolve(answers)
-		this.#emitter.emit('submit', answers)
+			const answers = this.#snapshot()
+			this.#status = 'settled'
+			this.#resolvers.resolve(answers)
+			this.#emitter.emit('submit', answers)
 
-		return { success: true, value: answers }
+			return { success: true, value: answers }
+		})
 	}
 
 	/**
-	 * Return every answer to the schema's defaults, leaving the form open.
+	 * Return every answer to the ones the form opened with: the schema's defaults, overlaid with
+	 * any seeded `values`.
 	 *
 	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended.
 	 */
 	clear(): void {
 		this.#gate()
 
-		for (const name of Object.keys(this.#values)) delete this.#values[name]
-		for (const [name, value] of Object.entries(this.#baseline)) {
-			Object.defineProperty(this.#values, name, {
-				value,
-				enumerable: true,
-				configurable: true,
-				writable: true,
-			})
-		}
+		this.#emitBatch(() => {
+			for (const name of Object.keys(this.#values)) delete this.#values[name]
+			for (const [name, value] of Object.entries(this.#baseline)) {
+				Object.defineProperty(this.#values, name, {
+					value,
+					enumerable: true,
+					configurable: true,
+					writable: true,
+				})
+			}
 
-		this.#touched.clear()
-		this.#invalidations.clear()
+			this.#touched.clear()
+			this.#invalidations.clear()
 
-		const changed = this.#evaluate()
+			const changed = this.#evaluate()
 
-		this.#emitter.emit('clear')
-		if (changed) this.#emitter.emit('validate', this.#errors)
+			this.#emitter.emit('clear')
+			if (changed) this.#emitter.emit('validate', this.#errors)
+		})
 	}
 
 	/**
@@ -367,7 +380,7 @@ export class Form implements FormInterface {
 	 * announces nothing. Every getter keeps answering afterwards; every write is refused.
 	 */
 	destroy(): void {
-		if (this.#pending || this.#emitter.destroyed) return
+		if (this.#pending) return
 
 		this.#pending = true
 		if (this.#emissions === 0) this.#teardown()
@@ -378,7 +391,7 @@ export class Form implements FormInterface {
 		if (this.#status === 'settled') {
 			throw new FormError('SETTLED', 'The form has settled and cannot change')
 		}
-		if (this.#status === 'abandoned' || this.#pending || this.#emitter.destroyed) {
+		if (this.#status === 'abandoned' || this.#pending) {
 			throw new FormError('ABANDONED', 'The form was abandoned and cannot change')
 		}
 	}
@@ -428,17 +441,7 @@ export class Form implements FormInterface {
 
 		if (value === undefined) return current !== undefined
 		if (current === undefined) return true
-
-		if (isArray(current) || isArray(value)) {
-			return (
-				!isArray(current) ||
-				!isArray(value) ||
-				current.length !== value.length ||
-				current.some((entry, index) => entry !== value[index])
-			)
-		}
-
-		return current !== value
+		return !matchesValue(current, value)
 	}
 
 	// The answers a submit hands over: every enabled field somebody has answered.
@@ -460,15 +463,11 @@ export class Form implements FormInterface {
 		return Object.freeze(answers)
 	}
 
-	#emitFill(names: readonly string[]): void {
+	#emitBatch<T>(callback: () => T): T {
 		this.#emissions += 1
 
 		try {
-			for (const name of names) {
-				const value = Object.hasOwn(this.#values, name) ? this.#values[name] : undefined
-				this.#emitter.emit('fill', name, value)
-			}
-			if (this.#evaluate()) this.#emitter.emit('validate', this.#errors)
+			return callback()
 		} finally {
 			this.#emissions -= 1
 			if (this.#emissions === 0 && this.#pending) this.#teardown()

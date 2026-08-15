@@ -1,6 +1,7 @@
 import type { JSONRecord, JSONValue } from '@orkestrel/contract'
 import type {
 	FieldError,
+	FieldControl,
 	FieldRuleName,
 	FieldValue,
 	FormField,
@@ -24,6 +25,7 @@ import {
 	DATE_PATTERN,
 	DATETIME_PATTERN,
 	EMAIL_PATTERN,
+	FIELD_CONTROLS,
 	INTEGER_PATTERN,
 	PATTERN_LIMIT,
 	RULE_MESSAGES,
@@ -83,6 +85,41 @@ export function matchesField(field: FormField, value: unknown): value is FieldVa
 }
 
 /**
+ * Check whether a named rule applies to one field control.
+ *
+ * @param control - The field control to inspect.
+ * @param rule - The named rule to inspect.
+ * @returns Whether the control evaluates that rule.
+ */
+export function appliesRule(control: FieldControl, rule: FieldRuleName): boolean {
+	if (!FIELD_CONTROLS.some((candidate) => candidate === control)) return false
+
+	switch (rule) {
+		case 'required':
+			return true
+		case 'minimum':
+		case 'maximum':
+			return control !== 'color' && control !== 'confirm' && control !== 'select'
+		case 'step':
+			return control === 'number'
+		case 'pattern':
+		case 'email':
+		case 'url':
+		case 'alphanumeric':
+			return (
+				control !== 'number' &&
+				control !== 'confirm' &&
+				control !== 'checkbox' &&
+				control !== 'file'
+			)
+		case 'integer':
+			return control !== 'confirm' && control !== 'checkbox' && control !== 'file'
+	}
+
+	return false
+}
+
+/**
  * Evaluate one field rule against its current value.
  *
  * @param field - The field and rule to evaluate.
@@ -101,7 +138,7 @@ export function evaluateField(
 	const rule = field.rule
 
 	if (value === undefined) {
-		if (rule?.required === true) {
+		if (rule?.required === true && appliesRule(field.control, 'required')) {
 			errors.push(
 				Object.freeze({
 					field: field.name,
@@ -115,7 +152,7 @@ export function evaluateField(
 
 	if (rule === undefined) return Object.freeze(errors)
 
-	if (rule.minimum !== undefined) {
+	if (rule.minimum !== undefined && appliesRule(field.control, 'minimum')) {
 		let failed = false
 
 		switch (field.control) {
@@ -153,7 +190,7 @@ export function evaluateField(
 		}
 	}
 
-	if (rule.maximum !== undefined) {
+	if (rule.maximum !== undefined && appliesRule(field.control, 'maximum')) {
 		let failed = false
 
 		switch (field.control) {
@@ -191,7 +228,7 @@ export function evaluateField(
 		}
 	}
 
-	if (field.control === 'number' && rule.step !== undefined && isFiniteNumber(value)) {
+	if (rule.step !== undefined && appliesRule(field.control, 'step') && isFiniteNumber(value)) {
 		const base = isFiniteNumber(rule.minimum) ? rule.minimum : 0
 		const multiple = (value - base) / rule.step
 
@@ -211,14 +248,8 @@ export function evaluateField(
 		}
 	}
 
-	if (
-		field.control !== 'number' &&
-		field.control !== 'confirm' &&
-		field.control !== 'checkbox' &&
-		field.control !== 'file' &&
-		isString(value)
-	) {
-		if (rule.pattern !== undefined) {
+	if (isString(value)) {
+		if (rule.pattern !== undefined && appliesRule(field.control, 'pattern')) {
 			const pattern = rule.pattern
 
 			if (pattern.length > PATTERN_LIMIT) {
@@ -244,7 +275,7 @@ export function evaluateField(
 			}
 		}
 
-		if (rule.email === true && !EMAIL_PATTERN.test(value)) {
+		if (rule.email === true && appliesRule(field.control, 'email') && !EMAIL_PATTERN.test(value)) {
 			errors.push(
 				Object.freeze({
 					field: field.name,
@@ -254,7 +285,7 @@ export function evaluateField(
 			)
 		}
 
-		if (rule.url === true && !URL_PATTERN.test(value)) {
+		if (rule.url === true && appliesRule(field.control, 'url') && !URL_PATTERN.test(value)) {
 			errors.push(
 				Object.freeze({
 					field: field.name,
@@ -264,7 +295,11 @@ export function evaluateField(
 			)
 		}
 
-		if (rule.alphanumeric === true && !ALPHANUMERIC_PATTERN.test(value)) {
+		if (
+			rule.alphanumeric === true &&
+			appliesRule(field.control, 'alphanumeric') &&
+			!ALPHANUMERIC_PATTERN.test(value)
+		) {
 			errors.push(
 				Object.freeze({
 					field: field.name,
@@ -274,7 +309,11 @@ export function evaluateField(
 			)
 		}
 
-		if (rule.integer === true && !INTEGER_PATTERN.test(value)) {
+		if (
+			rule.integer === true &&
+			appliesRule(field.control, 'integer') &&
+			!INTEGER_PATTERN.test(value)
+		) {
 			errors.push(
 				Object.freeze({
 					field: field.name,
@@ -285,7 +324,12 @@ export function evaluateField(
 		}
 	}
 
-	if (field.control === 'number' && rule.integer === true && !isInteger(value)) {
+	if (
+		field.control === 'number' &&
+		rule.integer === true &&
+		appliesRule(field.control, 'integer') &&
+		!isInteger(value)
+	) {
 		errors.push(
 			Object.freeze({
 				field: field.name,
@@ -378,6 +422,26 @@ export function computeDefaults(schema: FormSchema): FormValues {
 }
 
 /**
+ * Compare two field values by scalar identity or ordered list content.
+ *
+ * @param a - The first field value.
+ * @param b - The second field value.
+ * @returns Whether both values contain the same answer.
+ */
+export function matchesValue(a: FieldValue, b: FieldValue): boolean {
+	if (isArray(a) || isArray(b)) {
+		return (
+			isArray(a) &&
+			isArray(b) &&
+			a.length === b.length &&
+			a.every((entry, index) => entry === b[index])
+		)
+	}
+
+	return a === b
+}
+
+/**
  * Compare two form value records by keys and value content.
  *
  * @param a - The first value record.
@@ -394,17 +458,9 @@ export function matchesValues(a: FormValues, b: FormValues): boolean {
 
 		const left = a[key]
 		const right = b[key]
+		if (left === undefined || right === undefined) return false
 
-		if (isArray(left) || isArray(right)) {
-			return (
-				isArray(left) &&
-				isArray(right) &&
-				left.length === right.length &&
-				left.every((entry, index) => entry === right[index])
-			)
-		}
-
-		return left === right
+		return matchesValue(left, right)
 	})
 }
 
@@ -498,10 +554,10 @@ export function serializeForm(schema: FormSchema): JSONRecord {
 					if (choice.disabled !== undefined) option.disabled = choice.disabled
 					return option
 				})
-				if (field.default !== undefined) entry.default = field.default.slice()
+				if (field.default !== undefined) entry.default = field.default
 				break
 			case 'file':
-				if (field.accept !== undefined) entry.accept = field.accept.slice()
+				if (field.accept !== undefined) entry.accept = field.accept
 				if (field.multiple !== undefined) entry.multiple = field.multiple
 				break
 		}
@@ -605,6 +661,14 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 				}
 				choices.add(choice.value)
 			}
+
+			if (
+				field.rule?.required === true &&
+				(field.control === 'checkbox' || field.open !== true) &&
+				field.choices.every((choice) => choice.disabled === true)
+			) {
+				faults.push(`Field "${field.name}" is required but offers no enabled choice`)
+			}
 		}
 
 		const rule = field.rule
@@ -612,15 +676,12 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 
 		const temporal =
 			field.control === 'date' || field.control === 'time' || field.control === 'datetime'
-		const measureless =
-			field.control === 'color' || field.control === 'confirm' || field.control === 'select'
-
-		if (rule.minimum !== undefined && measureless) {
+		if (rule.minimum !== undefined && !appliesRule(field.control, 'minimum')) {
 			faults.push(`Field "${field.name}" has minimum on ${field.control}`)
 		} else if (isString(rule.minimum) && !temporal) {
 			faults.push(`Field "${field.name}" has a string minimum on ${field.control}`)
 		}
-		if (rule.maximum !== undefined && measureless) {
+		if (rule.maximum !== undefined && !appliesRule(field.control, 'maximum')) {
 			faults.push(`Field "${field.name}" has maximum on ${field.control}`)
 		} else if (isString(rule.maximum) && !temporal) {
 			faults.push(`Field "${field.name}" has a string maximum on ${field.control}`)
@@ -632,35 +693,26 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 			faults.push(`Field "${field.name}" has a numeric maximum on ${field.control}`)
 		}
 
-		if (rule.step !== undefined && field.control !== 'number') {
+		if (rule.step !== undefined && !appliesRule(field.control, 'step')) {
 			faults.push(`Field "${field.name}" has step on ${field.control}`)
 		}
 		if (rule.step !== undefined && rule.step <= 0) {
 			faults.push(`Field "${field.name}" has a non-positive step`)
 		}
 
-		const stringless =
-			field.control === 'number' ||
-			field.control === 'confirm' ||
-			field.control === 'checkbox' ||
-			field.control === 'file'
-
-		if (rule.pattern !== undefined && stringless) {
+		if (rule.pattern !== undefined && !appliesRule(field.control, 'pattern')) {
 			faults.push(`Field "${field.name}" has pattern on ${field.control}`)
 		}
-		if (rule.email === true && stringless) {
+		if (rule.email === true && !appliesRule(field.control, 'email')) {
 			faults.push(`Field "${field.name}" has email on ${field.control}`)
 		}
-		if (rule.url === true && stringless) {
+		if (rule.url === true && !appliesRule(field.control, 'url')) {
 			faults.push(`Field "${field.name}" has url on ${field.control}`)
 		}
-		if (rule.alphanumeric === true && stringless) {
+		if (rule.alphanumeric === true && !appliesRule(field.control, 'alphanumeric')) {
 			faults.push(`Field "${field.name}" has alphanumeric on ${field.control}`)
 		}
-		if (
-			rule.integer === true &&
-			(field.control === 'confirm' || field.control === 'checkbox' || field.control === 'file')
-		) {
+		if (rule.integer === true && !appliesRule(field.control, 'integer')) {
 			faults.push(`Field "${field.name}" has integer on ${field.control}`)
 		}
 

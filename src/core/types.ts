@@ -62,7 +62,8 @@ export type FormValues = Readonly<Record<string, FieldValue>>
  * @remarks
  * A form opens `editing`, turns `settled` on its first valid submit, and turns `abandoned`
  * when it is destroyed before settling. Both end states are terminal, and a write to a form
- * in either one is refused.
+ * in either one is refused. A destroy requested from inside a listener refuses every write
+ * immediately, while `status` keeps its pre-teardown value until that event batch finishes.
  */
 export type FormStatus = 'editing' | 'settled' | 'abandoned'
 
@@ -81,7 +82,8 @@ export type FormErrorCode = 'SCHEMA' | 'FIELD' | 'CONTROL' | 'SETTLED' | 'ABANDO
  *
  * @remarks
  * `value` is what the form stores and `label` is what the person reads. `help` explains the
- * option, and `disabled` shows it while refusing it.
+ * option, and `disabled` shows it while refusing its value at every input door, including
+ * seeded values.
  */
 export interface FieldChoice {
 	readonly value: string
@@ -96,6 +98,8 @@ export interface FieldChoice {
  * @param value - The value the field currently holds.
  * @param values - Every answer the form holds, so a rule can read its siblings.
  * @returns `true` when the value passes, or the message explaining why it failed.
+ * @throws The validator's own thrown value escapes the mutation call unchanged. Form-owned
+ *   refusals use {@link FormError} instead.
  * @example
  * ```ts
  * const matches: FieldValidator = (value, values) =>
@@ -483,7 +487,10 @@ export interface FormInterface {
 	 * @returns The values on success, or every error that stopped them.
 	 */
 	submit(): FormResult
-	/** Return every answer to the schema's defaults, leaving the form open. */
+	/**
+	 * Return every answer to the ones the form opened with: the schema's defaults, overlaid with
+	 * any seeded `values`.
+	 */
 	clear(): void
 	/** Tear the form down, abandoning it when it has not settled. */
 	destroy(): void

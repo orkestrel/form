@@ -15,7 +15,8 @@
 >
 > The core is pure and total. Every guard returns `false` off-shape rather than throwing, every
 > parser returns `undefined` on refusal, and every value the form hands back is a frozen owned copy.
-> The only exceptions it raises are `FormError`, and each one names a caller mistake.
+> Form-owned refusals raise `FormError`, and each one names a caller mistake. A custom validator's
+> own throw escapes the mutation call unchanged.
 
 ## Surface
 
@@ -76,7 +77,7 @@ What a form holds, what its answers must satisfy, and how a failure reports itse
 | `FormValues`     | type      | A form's answers keyed by field name. A name with no key is a field nobody has answered.                                                                            |
 | `FieldRule`      | interface | The constraints one field's value must satisfy — `required` / `minimum` / `maximum` / `step` / `pattern` / `email` / `url` / `integer` / `alphanumeric` / `custom`. |
 | `FieldRuleName`  | type      | Every rule that reports its failure by name — `FieldRule` without `custom`, and the key `FormOptions.messages` is keyed by.                                         |
-| `FieldValidator` | type      | The cross-field check `custom` runs — it receives the value and every answer the form holds, and returns `true` or a message.                                       |
+| `FieldValidator` | type      | The cross-field check `custom` runs — it receives the value and every answer the form holds, and returns `true` or a message; its own throw escapes.                |
 | `FieldError`     | interface | One failed check — the `field`, the `message`, and the `rule` that produced it where a named rule did.                                                              |
 
 ### The form
@@ -147,9 +148,11 @@ and the wire projection.
 | API               | Kind     | Summary                                                                                                  |
 | ----------------- | -------- | -------------------------------------------------------------------------------------------------------- |
 | `matchesField`    | function | Whether one control can hold a value — the shape gate every write and every seed passes through.         |
+| `appliesRule`     | function | Whether one named rule applies to one field control.                                                     |
 | `evaluateField`   | function | Every failure one field's rule produces against its current value, in rule order.                        |
 | `evaluateForm`    | function | Every failure the whole schema produces, in schema order then rule order; a disabled field is skipped.   |
 | `computeDefaults` | function | The values a schema explicitly seeds. `password` and `file` declare no default, so neither ever appears. |
+| `matchesValue`    | function | Whether two field values hold the same answer, comparing list values element by element.                 |
 | `matchesValues`   | function | Whether two answer records hold the same answers, comparing list values element by element.              |
 | `formatMessage`   | function | Resolve one rule's failure text — an override first, then `RULE_MESSAGES` — and substitute `{limit}`.    |
 | `serializeForm`   | function | Project a schema into JSON, dropping every `custom` validator and every absent member.                   |
@@ -341,7 +344,10 @@ const terms: ConfirmField = {
 ### select
 
 `open` admits a value the list does not offer, which is what turns a closed menu into a suggestion
-list. A choice marked `disabled` is shown and refused: `matchesField` rejects its value either way.
+list. A choice marked `disabled` is shown and refused at every door, including seeded values.
+Filter stored answers through `parseValues` or `parseValue` before seeding them; an `undefined`
+result means the value is no longer legal. An all-disabled select renders unanswerable. When it is
+required and closed, `auditSchema` reports a fault; when it is optional, that empty domain is legal.
 
 ```ts
 import type { SelectField } from '@orkestrel/form'
@@ -422,6 +428,9 @@ measure is a count or a magnitude, and take a string written in the control's ow
 the measure is chronology — `'2026-01-01'` for a date, `'09:00'` for a time. `auditSchema` refuses
 the mismatch rather than letting it fail silently at evaluation time.
 
+Bounds compare temporal strings lexically. Spell each operand and value at the same precision:
+because seconds are optional, `'09:00'` sorts before `'09:00:00'`.
+
 `step` is number-only. A temporal step is not in this package; see the concept inventory.
 
 ```ts
@@ -448,6 +457,8 @@ formatMessage('required', undefined, { required: 'We need this one' }) // 'We ne
 second is what makes a cross-field rule possible without a second mechanism — a confirmation field
 reads its sibling directly. It returns `true` to pass, or the message explaining the failure, and
 that message travels as a `FieldError` with no `rule`, because the failure belongs to no named rule.
+A validator's own throw escapes the mutation call unchanged; only form-owned refusals are
+`FormError`.
 
 ```ts
 import { evaluateField } from '@orkestrel/form'
@@ -478,14 +489,11 @@ Two mechanisms bound it, and both are deliberate.
 `createForm` and `parseForm` both refuse the schema, and `evaluateField` fails the field on the
 `pattern` rule rather than handing the source to `RegExp`.
 
-**The schema's author is the validation authority.** A pattern that arrives inside a schema is
-executed by whoever holds that schema, so a schema is only as trustworthy as its source. The wire
-boundary is drawn to make that concrete: `serializeForm` drops every `custom` validator on the way
-out, and `parseForm` drops every `custom` member on the way in, so no code crosses the boundary in
-either direction — only data. Declarative rules do cross, and a pattern is one of them. Parse a
-peer's schema through `parseForm`, which refuses an over-long or uncompilable pattern outright, and
-treat an untrusted peer's remaining pattern the way you would treat any expression you agreed to
-run.
+A pattern within `PATTERN_LIMIT` can still backtrack catastrophically. This package applies no time
+bound. Evaluating an untrusted pattern spends the caller's thread. The wire boundary remains data
+only: `serializeForm` drops every `custom` validator on the way out, and `parseForm` drops every
+`custom` member on the way in. Parse a peer's schema through `parseForm`, which refuses an over-long
+or uncompilable pattern, and decide whether its remaining patterns are trusted before evaluation.
 
 ```ts
 import { auditSchema, evaluateField, PATTERN_LIMIT } from '@orkestrel/form'
@@ -506,9 +514,9 @@ evaluateField(long, 'aaa', {})
 
 `auditSchema` is the semantic pass that structural validation cannot do: duplicate names, a missing
 group, a default its own control cannot hold, a rule on a control that cannot measure it, a minimum
-above its maximum, an uncompilable pattern. It runs inside `createForm` and inside `parseForm`, so a
-consumer rarely calls it directly — but it is exported, because a schema editor wants the
-diagnostics before it constructs anything.
+above its maximum, an uncompilable pattern, or a required closed choice field with no enabled
+choice. It runs inside `createForm` and inside `parseForm`, so a consumer rarely calls it directly —
+but it is exported, because a schema editor wants the diagnostics before it constructs anything.
 
 **Its returned strings are human diagnostics, not a stable machine contract.** Read them, show them,
 log them. Do not branch on their text or parse a field name out of them: the wording is free to
@@ -557,6 +565,9 @@ A form opens `editing`, turns `settled` on its first valid submit, and turns `ab
 destroyed before settling. Both end states are terminal, and every write to a form in either one is
 refused with a `FormError`. Every getter keeps answering afterwards.
 
+A destroy requested from inside a listener refuses every write immediately. `status` still reads
+its pre-teardown value until the interrupted event batch finishes.
+
 **There is no `check()`.** `errors` is always current: it is computed at construction and again
 after every mutation, and the `validate` event fires exactly when that list's content changes. A
 caller never has to remember to revalidate, and a renderer never reads a stale error.
@@ -603,15 +614,17 @@ form.status // 'settled'
 
 They differ in what they remove, and the difference is load-bearing.
 
-| Switch     | Rendered    | Writable | Validated | Submitted |
-| ---------- | ----------- | -------- | --------- | --------- |
-| `hidden`   | no          | yes      | yes       | yes       |
-| `locked`   | yes         | no       | yes       | yes       |
-| `disabled` | host's call | no       | no        | no        |
+| Switch     | Renderer obligation          | `fill`  | Validated | Submitted |
+| ---------- | ---------------------------- | ------- | --------- | --------- |
+| `hidden`   | omit                         | accepts | yes       | yes       |
+| `locked`   | render without person edits  | accepts | yes       | yes       |
+| `disabled` | omit or render without edits | accepts | no        | no        |
 
 `hidden` keeps a field out of the rendered form while it still travels. `locked` renders it
 unwritable. `disabled` takes the field out of the form entirely: it is neither evaluated nor
 submitted, and its value may still appear in `values` so a renderer can show it.
+`fill` refuses none of the three switches; they constrain rendering, evaluation, and submission,
+not programmatic writes.
 
 ```ts
 import { createForm } from '@orkestrel/form'
@@ -645,8 +658,8 @@ written, so a refused write changes nothing. Passing `undefined` clears one fiel
 coupon already spent. One field holds one external failure, a second call replaces the first, and
 the failure lasts until that field is filled again or the form is cleared.
 
-`clear` returns every answer to the schema's defaults and leaves the form open. It also clears
-`touched` and every external failure.
+`clear` returns every answer to the ones the form opened with: the schema's defaults, overlaid with
+any seeded `values`. It also clears `touched` and every external failure.
 
 ```ts
 import { createForm } from '@orkestrel/form'
@@ -883,7 +896,14 @@ no form — a server checking a posted body, an editor previewing a schema — r
 the form would give.
 
 ```ts
-import { computeDefaults, evaluateForm, extractGroups, matchesValues } from '@orkestrel/form'
+import {
+	appliesRule,
+	computeDefaults,
+	evaluateForm,
+	extractGroups,
+	matchesValue,
+	matchesValues,
+} from '@orkestrel/form'
 import type { FormSchema } from '@orkestrel/form'
 
 const schema: FormSchema = {
@@ -901,6 +921,8 @@ const schema: FormSchema = {
 computeDefaults(schema) // { email: 'ada@example.com', terms: false } — `password` seeds nothing
 extractGroups(schema) // [{ name: 'account', label: 'Account' }] — `unused` is referenced by nobody
 evaluateForm(schema, {}) // [] — no field declares a rule
+appliesRule('number', 'step') // true
+matchesValue(['a'], ['a']) // true
 matchesValues({ topics: ['a'] }, { topics: ['a'] }) // true
 ```
 
@@ -923,13 +945,14 @@ call signature and no named members.
 | `touch`      | `void`                     | Record that somebody has visited a field.                                                                  |
 | `invalidate` | `void`                     | Fail a field from outside, for what the rules cannot see. It lasts until the field is filled or cleared.   |
 | `submit`     | `FormResult`               | Check every answer and settle the form when they all pass; otherwise return every error that stopped them. |
-| `clear`      | `void`                     | Return every answer to the schema's defaults, leaving the form open.                                       |
+| `clear`      | `void`                     | Return every answer to the ones the form opened with: defaults overlaid with seeded `values`.              |
 | `destroy`    | `void`                     | Tear the form down, abandoning it when it has not settled. Idempotent.                                     |
 
 ### Errors
 
 `FormError` carries a machine-readable `code` and an optional structured `context`. Narrow a caught
-value with `isFormError` and branch on `code`; never match on message text.
+value with `isFormError` and branch on `code`; never match on message text. A custom validator's own
+throw is the caller's exception and escapes unchanged.
 
 | Code        | Raised when                                                                                        |
 | ----------- | -------------------------------------------------------------------------------------------------- |
@@ -1006,13 +1029,17 @@ These invariants hold across [`src/core`](../src/core) and this guide.
 9. **Guards are total and parsers refuse.** No `is*` throws for any input — hostile prototype,
    symbol key, cycle, or depth. No `parse*` throws; each returns `undefined` on refusal. A
    guard-valid value is never refused by its parser, and every parsed result satisfies its guard.
+   A pattern within `PATTERN_LIMIT` can still backtrack catastrophically; this package applies no
+   time bound, so evaluating an untrusted pattern spends the caller's thread.
 10. **Only data crosses the wire.** `serializeForm` drops every `custom` validator on the way out
     and `parseForm` drops every `custom` member on the way in, so no function crosses in either
     direction. Everything that does cross survives the round trip exactly.
 11. **`auditSchema` returns diagnostics, not a contract.** The list's emptiness is the promise. The
     wording of its strings is not, and no consumer should parse them.
 12. **The temporal patterns are lexical.** `date`, `time`, and `datetime` values are checked for
-    spelling, never against a calendar, so `'2026-02-31'` is a valid `date` value here.
+    spelling, never against a calendar, so `'2026-02-31'` is a valid `date` value here. Bounds also
+    compare lexically, so operands and values must use the same precision; `'09:00'` sorts before
+    `'09:00:00'`.
 
 ## Concept inventory
 
@@ -1043,8 +1070,9 @@ reopening.
 - [`tests/src/core/Form.test.ts`](../tests/src/core/Form.test.ts) — construction, state, `fill`,
   `touch`, `invalidate`, `submit`, `clear`, `destroy`, and the rule paths through the entity.
 - [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) — `matchesField`,
-  `evaluateField`, `evaluateForm`, `computeDefaults`, `matchesValues`, `formatMessage`,
-  `serializeForm`, `extractGroups`, `auditSchema`, and the control-by-rule matrix.
+  `appliesRule`, `evaluateField`, `evaluateForm`, `computeDefaults`, `matchesValue`,
+  `matchesValues`, `formatMessage`, `serializeForm`, `extractGroups`, `auditSchema`, and the
+  control-by-rule matrix.
 - [`tests/src/core/validators.test.ts`](../tests/src/core/validators.test.ts) — every guard against
   valid, off-shape, and hostile input, plus guard/parser soundness in both directions.
 - [`tests/src/core/parsers.test.ts`](../tests/src/core/parsers.test.ts) — `parseValue`,

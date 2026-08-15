@@ -9,6 +9,7 @@ import type {
 } from '@src/core'
 import {
 	FIELD_CONTROLS,
+	appliesRule,
 	auditSchema,
 	computeDefaults,
 	evaluateField,
@@ -16,6 +17,7 @@ import {
 	extractGroups,
 	formatMessage,
 	matchesField,
+	matchesValue,
 	matchesValues,
 	serializeForm,
 } from '@src/core'
@@ -33,29 +35,6 @@ const MATRIX_RULES: readonly FieldRuleName[] = [
 	'integer',
 	'alphanumeric',
 ]
-
-const STRING_CONTROLS: readonly FieldControl[] = [
-	'text',
-	'editor',
-	'password',
-	'date',
-	'time',
-	'datetime',
-	'color',
-	'select',
-]
-
-const MATRIX_APPLICABILITY: Readonly<Record<FieldRuleName, readonly FieldControl[]>> = {
-	required: FIELD_CONTROLS,
-	minimum: ['text', 'editor', 'password', 'number', 'date', 'time', 'datetime', 'checkbox', 'file'],
-	maximum: ['text', 'editor', 'password', 'number', 'date', 'time', 'datetime', 'checkbox', 'file'],
-	step: ['number'],
-	pattern: STRING_CONTROLS,
-	email: STRING_CONTROLS,
-	url: STRING_CONTROLS,
-	integer: ['number', ...STRING_CONTROLS],
-	alphanumeric: STRING_CONTROLS,
-}
 
 const MATRIX_FIELDS: Readonly<Record<FieldControl, FormField>> = {
 	text: { control: 'text', name: 'text' },
@@ -124,7 +103,7 @@ function createMinimumCase(control: FieldControl): readonly [FieldRule, FieldVal
 		case 'color':
 		case 'confirm':
 		case 'select':
-			return [{ minimum: 2 }, MATRIX_VALUES[control], MATRIX_VALUES[control]]
+			return [{ minimum: 99 }, MATRIX_VALUES[control], MATRIX_VALUES[control]]
 	}
 }
 
@@ -149,7 +128,7 @@ function createMaximumCase(control: FieldControl): readonly [FieldRule, FieldVal
 		case 'color':
 		case 'confirm':
 		case 'select':
-			return [{ maximum: 1 }, MATRIX_VALUES[control], MATRIX_VALUES[control]]
+			return [{ maximum: 0 }, MATRIX_VALUES[control], MATRIX_VALUES[control]]
 	}
 }
 
@@ -605,6 +584,19 @@ describe('evaluateField', () => {
 })
 
 describe('form helpers', () => {
+	it('compares one field value by scalar identity or ordered list content', () => {
+		expect(matchesValue('same', 'same')).toBe(true)
+		expect(matchesValue(['one', 'two'], ['one', 'two'])).toBe(true)
+		expect(matchesValue(['one', 'two'], ['two', 'one'])).toBe(false)
+		expect(matchesValue(['one'], 'one')).toBe(false)
+	})
+
+	it('answers rule applicability from one total control-by-rule source', () => {
+		expect(appliesRule('text', 'minimum')).toBe(true)
+		expect(appliesRule('confirm', 'minimum')).toBe(false)
+		expect(Reflect.apply(appliesRule, undefined, ['outside', 'required'])).toBe(false)
+	})
+
 	it('evaluates fields in schema order while skipping only disabled fields', () => {
 		const schema: FormSchema = {
 			fields: [
@@ -860,6 +852,54 @@ describe('auditSchema', () => {
 		])
 	})
 
+	it('faults only required closed choice fields with no enabled choice', () => {
+		expect(
+			auditSchema({
+				fields: [
+					{
+						control: 'select',
+						name: 'plan',
+						choices: [{ value: 'legacy', label: 'Legacy', disabled: true }],
+						rule: { required: true },
+					},
+					{
+						control: 'checkbox',
+						name: 'topics',
+						choices: [],
+						rule: { required: true },
+					},
+				],
+			}),
+		).toStrictEqual([
+			'Field "plan" is required but offers no enabled choice',
+			'Field "topics" is required but offers no enabled choice',
+		])
+
+		expect(
+			auditSchema({
+				fields: [
+					{
+						control: 'select',
+						name: 'optional',
+						choices: [{ value: 'legacy', label: 'Legacy', disabled: true }],
+					},
+					{
+						control: 'checkbox',
+						name: 'optional-list',
+						choices: [{ value: 'legacy', label: 'Legacy', disabled: true }],
+					},
+					{
+						control: 'select',
+						name: 'open',
+						open: true,
+						choices: [],
+						rule: { required: true },
+					},
+				],
+			}),
+		).toStrictEqual([])
+	})
+
 	it('reports duplicate choice values within each choice field', () => {
 		expect(
 			auditSchema({
@@ -1003,16 +1043,17 @@ describe('control and rule matrix', () => {
 
 		for (const control of FIELD_CONTROLS) {
 			for (const rule of MATRIX_RULES) {
-				const applicable = MATRIX_APPLICABILITY[rule].includes(control)
+				const applicable = appliesRule(control, rule)
 				const [authored, passing, failing] = createMatrixCase(control, rule)
 				const field = createMatrixField(control, authored)
 				const passingValue = applicable ? passing : MATRIX_VALUES[control]
 				const passingRules = evaluateField(field, passingValue, {}).map((error) => error.rule)
-				const failingRules = applicable
-					? evaluateField(field, failing, {}).map((error) => error.rule)
-					: []
+				const failingValue = applicable ? failing : MATRIX_VALUES[control]
+				const failingRules = evaluateField(field, failingValue, {}).map((error) => error.rule)
 
 				pairs.push(`${control}:${rule}`)
+				// `confirm` holds a boolean no numeric operand discriminates; its inert bound cells
+				// are covered by the control's own evaluation arm.
 				expect({ control, rule, passing: passingRules, failing: failingRules }).toStrictEqual({
 					control,
 					rule,

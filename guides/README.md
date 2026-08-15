@@ -14,6 +14,9 @@ A dual-axis index into this repository's guides — by concept, and by directory
 | ---------- | -------------------- |
 | `src/core` | [`form.md`](form.md) |
 
+The parity suite transcribes and executes the flagship fence set from `form.md`. It name-checks and
+parity-checks the remaining fences but does not run them.
+
 ## Dependency reference
 
 [`guide.md`](guide.md) is a byte-identical mirror of the guide for `@orkestrel/guide` — the

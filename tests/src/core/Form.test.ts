@@ -476,6 +476,14 @@ describe('Form submit', () => {
 		await expect(form.answer).resolves.toBe(value)
 	})
 
+	it('omits an unanswered constructor field from the submitted payload', () => {
+		const form = new Form({ fields: [{ control: 'text', name: 'constructor' }] })
+		const result = form.submit()
+
+		expect(result).toStrictEqual({ success: true, value: {} })
+		expect(result.success ? Object.hasOwn(result.value, 'constructor') : true).toBe(false)
+	})
+
 	it('refuses every write once the form has settled', () => {
 		const form = new Form(SCHEMA)
 
@@ -522,6 +530,19 @@ describe('Form clear', () => {
 
 		expect(events).toStrictEqual(['clear'])
 	})
+
+	it('returns seeded answers rather than schema defaults', () => {
+		const form = new Form(
+			{ fields: [{ control: 'text', name: 'name', default: 'default' }] },
+			{ values: { name: 'seeded' } },
+		)
+
+		form.fill('name', 'changed')
+		form.clear()
+
+		expect(form.values).toStrictEqual({ name: 'seeded' })
+		expect(form.dirty).toBe(false)
+	})
 })
 
 describe('Form destroy', () => {
@@ -559,6 +580,31 @@ describe('Form destroy', () => {
 
 		expect(abandons.count).toBe(1)
 		expect(form.status).toBe('abandoned')
+	})
+
+	it('keeps form lifecycle independent from bare emitter destruction', async () => {
+		const form = new Form({ fields: [{ control: 'text', name: 'name' }] })
+
+		form.emitter.destroy()
+		form.fill('name', 'Ada')
+		form.touch('name')
+		form.invalidate('name', 'Unavailable')
+		form.clear()
+
+		expect(form.values).toStrictEqual({})
+		expect(form.touched.size).toBe(0)
+		expect(form.errors).toStrictEqual([])
+		expect(form.status).toBe('editing')
+
+		form.destroy()
+
+		expect(form.status).toBe('abandoned')
+		await expect(form.answer).rejects.toMatchObject({ code: 'ABANDONED' })
+
+		const submitted = new Form({ fields: [] })
+		submitted.emitter.destroy()
+		expect(submitted.submit()).toStrictEqual({ success: true, value: {} })
+		expect(submitted.status).toBe('settled')
 	})
 
 	it('leaves a settled form settled and announces nothing', () => {
@@ -631,6 +677,99 @@ describe('Form destroy', () => {
 		expect(form.status).toBe('abandoned')
 		expect(form.emitter.destroyed).toBe(true)
 		await expect(form.answer).rejects.toMatchObject({ code: 'ABANDONED' })
+	})
+
+	it('settles submit before teardown requested by its validate listener', async () => {
+		const events: string[] = []
+		let validations = 0
+		const form = new Form(
+			{
+				fields: [
+					{
+						control: 'text',
+						name: 'name',
+						default: 'before',
+						rule: {
+							custom: () => {
+								validations += 1
+								return validations >= 3 ? true : 'Not ready'
+							},
+						},
+					},
+				],
+			},
+			{
+				on: {
+					fill: () => events.push('fill'),
+					validate: () => {
+						events.push('validate')
+						form.destroy()
+					},
+					submit: () => events.push('submit'),
+					abandon: () => events.push('abandon'),
+				},
+			},
+		)
+
+		form.fill('name', 'after')
+		const result = form.submit()
+
+		expect(result).toStrictEqual({ success: true, value: { name: 'after' } })
+		expect(form.status).toBe('settled')
+		expect(events).toStrictEqual(['fill', 'validate', 'submit'])
+		expect(form.emitter.destroyed).toBe(true)
+		await expect(form.answer).resolves.toStrictEqual({ name: 'after' })
+	})
+
+	it('finishes clear and invalidate batches before listener-requested teardown', () => {
+		const clearEvents: string[] = []
+		const clearRefusals: string[] = []
+		const cleared = new Form(
+			{ fields: [{ control: 'text', name: 'name', rule: { required: true } }] },
+			{
+				on: {
+					clear: () => {
+						clearEvents.push('clear')
+						cleared.destroy()
+					},
+					validate: () => clearEvents.push('validate'),
+					abandon: () => clearEvents.push('abandon'),
+				},
+			},
+		)
+		cleared.emitter.on('clear', () => {
+			const outcome = attempt(() => cleared.touch('name'))
+			if (!outcome.success && isFormError(outcome.error)) {
+				clearRefusals.push(outcome.error.code)
+			}
+		})
+		cleared.fill('name', 'Ada')
+		clearEvents.length = 0
+
+		cleared.clear()
+
+		expect(clearEvents).toStrictEqual(['clear', 'validate', 'abandon'])
+		expect(clearRefusals).toStrictEqual(['ABANDONED'])
+		expect(cleared.status).toBe('abandoned')
+
+		const invalidateEvents: string[] = []
+		const invalidated = new Form(
+			{ fields: [{ control: 'text', name: 'name' }] },
+			{
+				on: {
+					validate: () => {
+						invalidateEvents.push('validate')
+						invalidated.destroy()
+					},
+					abandon: () => invalidateEvents.push('abandon'),
+				},
+			},
+		)
+
+		invalidated.invalidate('name', 'Unavailable')
+
+		expect(invalidateEvents).toStrictEqual(['validate', 'abandon'])
+		expect(invalidated.status).toBe('abandoned')
 	})
 
 	it('keeps every getter answering on the state the form ended with', () => {
