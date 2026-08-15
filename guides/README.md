@@ -1,18 +1,36 @@
 # Guides
 
+A dual-axis index into this repository's guides — by concept, and by directory.
+
 ## By concept
 
-- Package
-  - Spec: Not created. Create this file when the workspace has a public surface:
-    `guides/form.md`
-  - Source:
-    - [`src/core`](../src/core)
-  - Tests:
-    - [`tests/src/core`](../tests/src/core)
+| Concept | Spec                 | Source                    | Tests                                 |
+| ------- | -------------------- | ------------------------- | ------------------------------------- |
+| Form    | [`form.md`](form.md) | [`src/core`](../src/core) | [`tests/src/core`](../tests/src/core) |
 
 ## By directory
 
-- [`src/core`](../src/core)
-  - Guide: Not created. Create this file when the workspace has a public surface:
-    `guides/form.md`
-  - Tests: [`tests/src/core`](../tests/src/core)
+| Directory  | Guide                |
+| ---------- | -------------------- |
+| `src/core` | [`form.md`](form.md) |
+
+## Dependency reference
+
+[`guide.md`](guide.md) is a byte-identical mirror of the guide for `@orkestrel/guide` — the
+devDependency powering this repository's guides-parity suite
+([`tests/guides.test.ts`](../tests/guides.test.ts)). It documents **that package's** surface — the
+`Guide` and `Source` projections plus the manifest and comparison helpers — not anything sourced
+here. It is kept beside this guide set so a reader of the parity suite can see the primitives it is
+built from without leaving it.
+
+[`scaffold.md`](scaffold.md) is a byte-identical mirror of the guide for `@orkestrel/scaffold` — the
+devDependency that generates and repairs this workspace's vendored configuration, tests, and
+tooling. It documents **that package's** surface, not anything sourced here, and it is kept for the
+same reason.
+
+A mirror's own relative links address its upstream tree, so they resolve to nothing here and sit
+outside this repository's link parity. Refresh a mirror from upstream rather than rewriting it.
+
+## See also
+
+- [`AGENTS.md`](../AGENTS.md) — the coding contract every guide is written against.
