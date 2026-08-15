@@ -9,6 +9,7 @@ import type {
 } from '@src/core'
 import {
 	FIELD_CONTROLS,
+	Form,
 	appliesRule,
 	auditSchema,
 	computeDefaults,
@@ -35,6 +36,142 @@ const MATRIX_RULES: readonly FieldRuleName[] = [
 	'integer',
 	'alphanumeric',
 ]
+
+const RULE_APPLICABILITY: Readonly<Record<FieldControl, Readonly<Record<FieldRuleName, boolean>>>> =
+	{
+		text: {
+			required: true,
+			minimum: true,
+			maximum: true,
+			step: false,
+			pattern: true,
+			email: true,
+			url: true,
+			integer: true,
+			alphanumeric: true,
+		},
+		editor: {
+			required: true,
+			minimum: true,
+			maximum: true,
+			step: false,
+			pattern: true,
+			email: true,
+			url: true,
+			integer: true,
+			alphanumeric: true,
+		},
+		password: {
+			required: true,
+			minimum: true,
+			maximum: true,
+			step: false,
+			pattern: true,
+			email: true,
+			url: true,
+			integer: true,
+			alphanumeric: true,
+		},
+		number: {
+			required: true,
+			minimum: true,
+			maximum: true,
+			step: true,
+			pattern: false,
+			email: false,
+			url: false,
+			integer: true,
+			alphanumeric: false,
+		},
+		date: {
+			required: true,
+			minimum: true,
+			maximum: true,
+			step: false,
+			pattern: true,
+			email: true,
+			url: true,
+			integer: true,
+			alphanumeric: true,
+		},
+		time: {
+			required: true,
+			minimum: true,
+			maximum: true,
+			step: false,
+			pattern: true,
+			email: true,
+			url: true,
+			integer: true,
+			alphanumeric: true,
+		},
+		datetime: {
+			required: true,
+			minimum: true,
+			maximum: true,
+			step: false,
+			pattern: true,
+			email: true,
+			url: true,
+			integer: true,
+			alphanumeric: true,
+		},
+		color: {
+			required: true,
+			minimum: false,
+			maximum: false,
+			step: false,
+			pattern: true,
+			email: true,
+			url: true,
+			integer: true,
+			alphanumeric: true,
+		},
+		confirm: {
+			required: true,
+			minimum: false,
+			maximum: false,
+			step: false,
+			pattern: false,
+			email: false,
+			url: false,
+			integer: false,
+			alphanumeric: false,
+		},
+		select: {
+			required: true,
+			minimum: false,
+			maximum: false,
+			step: false,
+			pattern: true,
+			email: true,
+			url: true,
+			integer: true,
+			alphanumeric: true,
+		},
+		checkbox: {
+			required: true,
+			minimum: true,
+			maximum: true,
+			step: false,
+			pattern: false,
+			email: false,
+			url: false,
+			integer: false,
+			alphanumeric: false,
+		},
+		file: {
+			required: true,
+			minimum: true,
+			maximum: true,
+			step: false,
+			pattern: false,
+			email: false,
+			url: false,
+			integer: false,
+			alphanumeric: false,
+		},
+	}
 
 const MATRIX_FIELDS: Readonly<Record<FieldControl, FormField>> = {
 	text: { control: 'text', name: 'text' },
@@ -852,7 +989,49 @@ describe('auditSchema', () => {
 		])
 	})
 
-	it('faults only required closed choice fields with no enabled choice', () => {
+	it('accepts a present empty checkbox answer when required', () => {
+		const schema: FormSchema = {
+			fields: [
+				{
+					control: 'checkbox',
+					name: 'topics',
+					choices: [],
+					rule: { required: true },
+				},
+			],
+		}
+
+		expect(auditSchema(schema)).toStrictEqual([])
+
+		const form = new Form(schema)
+		form.fill('topics', [])
+		expect(form.submit()).toStrictEqual({ success: true, value: { topics: [] } })
+	})
+
+	it('exempts disabled choice fields from satisfiability faults', () => {
+		expect(
+			auditSchema({
+				fields: [
+					{
+						control: 'select',
+						name: 'plan',
+						disabled: true,
+						choices: [{ value: 'legacy', label: 'Legacy', disabled: true }],
+						rule: { required: true },
+					},
+					{
+						control: 'checkbox',
+						name: 'topics',
+						disabled: true,
+						choices: [{ value: 'legacy', label: 'Legacy', disabled: true }],
+						rule: { minimum: 1 },
+					},
+				],
+			}),
+		).toStrictEqual([])
+	})
+
+	it('faults active closed selects and unattainable checkbox minimums', () => {
 		expect(
 			auditSchema({
 				fields: [
@@ -865,28 +1044,11 @@ describe('auditSchema', () => {
 					{
 						control: 'checkbox',
 						name: 'topics',
-						choices: [],
-						rule: { required: true },
-					},
-				],
-			}),
-		).toStrictEqual([
-			'Field "plan" is required but offers no enabled choice',
-			'Field "topics" is required but offers no enabled choice',
-		])
-
-		expect(
-			auditSchema({
-				fields: [
-					{
-						control: 'select',
-						name: 'optional',
-						choices: [{ value: 'legacy', label: 'Legacy', disabled: true }],
-					},
-					{
-						control: 'checkbox',
-						name: 'optional-list',
-						choices: [{ value: 'legacy', label: 'Legacy', disabled: true }],
+						choices: [
+							{ value: 'current', label: 'Current' },
+							{ value: 'legacy', label: 'Legacy', disabled: true },
+						],
+						rule: { minimum: 2 },
 					},
 					{
 						control: 'select',
@@ -897,7 +1059,10 @@ describe('auditSchema', () => {
 					},
 				],
 			}),
-		).toStrictEqual([])
+		).toStrictEqual([
+			'Field "plan" is required but offers no enabled choice',
+			'Field "topics" has minimum 2 but offers only 1 enabled choice',
+		])
 	})
 
 	it('reports duplicate choice values within each choice field', () => {
@@ -1038,6 +1203,41 @@ describe('auditSchema', () => {
 })
 
 describe('control and rule matrix', () => {
+	it('matches the literal 12 by 9 applicability specification', () => {
+		for (const control of [
+			'text',
+			'editor',
+			'password',
+			'number',
+			'date',
+			'time',
+			'datetime',
+			'color',
+			'confirm',
+			'select',
+			'checkbox',
+			'file',
+		] satisfies readonly FieldControl[]) {
+			for (const rule of [
+				'required',
+				'minimum',
+				'maximum',
+				'step',
+				'pattern',
+				'email',
+				'url',
+				'integer',
+				'alphanumeric',
+			] satisfies readonly FieldRuleName[]) {
+				expect({ control, rule, value: appliesRule(control, rule) }).toStrictEqual({
+					control,
+					rule,
+					value: RULE_APPLICABILITY[control][rule],
+				})
+			}
+		}
+	})
+
 	it('evaluates all 12 by 9 applicable and inert pairs from one table', () => {
 		const pairs: string[] = []
 

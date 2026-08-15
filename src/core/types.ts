@@ -62,8 +62,11 @@ export type FormValues = Readonly<Record<string, FieldValue>>
  * @remarks
  * A form opens `editing`, turns `settled` on its first valid submit, and turns `abandoned`
  * when it is destroyed before settling. Both end states are terminal, and a write to a form
- * in either one is refused. A destroy requested from inside a listener refuses every write
- * immediately, while `status` keeps its pre-teardown value until that event batch finishes.
+ * in either one is refused. A destroy requested while a mutation batch is open is recorded,
+ * refuses every subsequent write immediately, and defers teardown until the outermost batch
+ * closes. The batch outcome wins: a batch that settles the form leaves it `settled`, resolves
+ * `answer`, and emits no `abandon`. Teardown never advances into, aborts, or rolls back the
+ * batch. The pending request is derived state and adds no fourth status.
  */
 export type FormStatus = 'editing' | 'settled' | 'abandoned'
 
@@ -98,8 +101,11 @@ export interface FieldChoice {
  * @param value - The value the field currently holds.
  * @param values - Every answer the form holds, so a rule can read its siblings.
  * @returns `true` when the value passes, or the message explaining why it failed.
- * @throws The validator's own thrown value escapes the mutation call unchanged. Form-owned
- *   refusals use {@link FormError} instead.
+ * @throws The validator's own thrown value escapes the mutation call unchanged. When a form
+ *   mutation has already changed state, the throw leaves those changes beside the error list
+ *   from before that mutation. An invalidation can therefore be recorded without appearing in
+ *   `errors`, and a clear can reset state without emitting `clear`. Form-owned refusals use
+ *   {@link FormError} instead.
  * @example
  * ```ts
  * const matches: FieldValidator = (value, values) =>
@@ -410,8 +416,8 @@ export interface FormOptions {
  * A form: a schema, the answers given against it, and the errors they carry.
  *
  * @remarks
- * `valid` is true when a check of the current answers finds no error, and `dirty` is true
- * once an answer differs from the one the form opened with. Both are derived, never stored.
+ * `valid` is true when the last completed evaluation found no error, and `dirty` is true once
+ * an answer differs from the one the form opened with. Both are derived, never stored.
  *
  * `touched` holds the fields somebody has visited, which is what lets a renderer withhold an
  * error until the person has had their turn at it.
@@ -436,7 +442,7 @@ export interface FormInterface {
 	readonly touched: ReadonlySet<string>
 	/** Where the form sits in its life. */
 	readonly status: FormStatus
-	/** Whether the current answers pass every rule. */
+	/** Whether the last completed evaluation found no error. */
 	readonly valid: boolean
 	/** Whether any answer has moved since the form opened. */
 	readonly dirty: boolean
@@ -444,8 +450,8 @@ export interface FormInterface {
 	 * The answers, once the form settles.
 	 *
 	 * @remarks
-	 * It resolves with the submitted values on the first valid submit, and rejects when the
-	 * form is destroyed before settling.
+	 * It resolves with the submitted values on the first valid submit, and rejects when teardown
+	 * abandons the form before it settles.
 	 */
 	readonly answer: Promise<FormValues>
 	/**
@@ -492,6 +498,12 @@ export interface FormInterface {
 	 * any seeded `values`.
 	 */
 	clear(): void
-	/** Tear the form down, abandoning it when it has not settled. */
+	/**
+	 * Tear the form down, abandoning it when it has not settled.
+	 *
+	 * @remarks
+	 * A request from inside a listener defers teardown until the outermost mutation batch closes,
+	 * so an in-flight settlement can win and leave the form `settled` rather than `abandoned`.
+	 */
 	destroy(): void
 }

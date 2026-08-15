@@ -87,6 +87,10 @@ export function matchesField(field: FormField, value: unknown): value is FieldVa
 /**
  * Check whether a named rule applies to one field control.
  *
+ * @remarks
+ * The runtime control-membership check keeps this boundary total for JavaScript callers that
+ * bypass the declared {@link FieldControl} contract.
+ *
  * @param control - The field control to inspect.
  * @param rule - The named rule to inspect.
  * @returns Whether the control evaluates that rule.
@@ -662,12 +666,29 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 				choices.add(choice.value)
 			}
 
-			if (
-				field.rule?.required === true &&
-				(field.control === 'checkbox' || field.open !== true) &&
-				field.choices.every((choice) => choice.disabled === true)
-			) {
-				faults.push(`Field "${field.name}" is required but offers no enabled choice`)
+			if (field.disabled !== true) {
+				const enabled = field.choices.filter((choice) => choice.disabled !== true).length
+
+				if (
+					field.control === 'select' &&
+					field.rule?.required === true &&
+					field.open !== true &&
+					enabled === 0
+				) {
+					faults.push(`Field "${field.name}" is required but offers no enabled choice`)
+				}
+
+				const minimum = field.rule?.minimum
+				if (
+					field.control === 'checkbox' &&
+					isFiniteNumber(minimum) &&
+					minimum > 0 &&
+					minimum > enabled
+				) {
+					faults.push(
+						`Field "${field.name}" has minimum ${minimum} but offers only ${enabled} enabled ${enabled === 1 ? 'choice' : 'choices'}`,
+					)
+				}
 			}
 		}
 

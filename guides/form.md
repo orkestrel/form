@@ -71,14 +71,14 @@ The document itself — what a form asks, in the order it asks it. All data, no 
 
 What a form holds, what its answers must satisfy, and how a failure reports itself.
 
-| API              | Kind      | Summary                                                                                                                                                             |
-| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FieldValue`     | type      | Every value a field can hold — a `string`, a `number`, a `boolean`, or a `readonly string[]`.                                                                       |
-| `FormValues`     | type      | A form's answers keyed by field name. A name with no key is a field nobody has answered.                                                                            |
-| `FieldRule`      | interface | The constraints one field's value must satisfy — `required` / `minimum` / `maximum` / `step` / `pattern` / `email` / `url` / `integer` / `alphanumeric` / `custom`. |
-| `FieldRuleName`  | type      | Every rule that reports its failure by name — `FieldRule` without `custom`, and the key `FormOptions.messages` is keyed by.                                         |
-| `FieldValidator` | type      | The cross-field check `custom` runs — it receives the value and every answer the form holds, and returns `true` or a message; its own throw escapes.                |
-| `FieldError`     | interface | One failed check — the `field`, the `message`, and the `rule` that produced it where a named rule did.                                                              |
+| API              | Kind      | Summary                                                                                                                                                                             |
+| ---------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FieldValue`     | type      | Every value a field can hold — a `string`, a `number`, a `boolean`, or a `readonly string[]`.                                                                                       |
+| `FormValues`     | type      | A form's answers keyed by field name. A name with no key is a field nobody has answered.                                                                                            |
+| `FieldRule`      | interface | The constraints one field's value must satisfy — `required` / `minimum` / `maximum` / `step` / `pattern` / `email` / `url` / `integer` / `alphanumeric` / `custom`.                 |
+| `FieldRuleName`  | type      | Every rule that reports its failure by name — `FieldRule` without `custom`, and the key `FormOptions.messages` is keyed by.                                                         |
+| `FieldValidator` | type      | The cross-field check `custom` runs — it receives the value and every answer the form holds, and returns `true` or a message; its own throw escapes after any earlier state change. |
+| `FieldError`     | interface | One failed check — the `field`, the `message`, and the `rule` that produced it where a named rule did.                                                                              |
 
 ### The form
 
@@ -99,7 +99,8 @@ The entity, its factory, its contract, and the error it raises.
 
 `FormInterface`'s readonly data members stay here rather than in `## Methods`: `emitter` (the typed
 event surface), `schema` (the owned frozen copy), `values` (the answers held right now), `errors`
-(always current), `touched` (the fields somebody has visited), `status`, `valid`, `dirty`, and
+(current after each completed evaluation), `touched` (the fields somebody has visited), `status`,
+`valid`, `dirty`, and
 `answer` (the promise that resolves on the first valid submit).
 
 ### Constants
@@ -346,8 +347,9 @@ const terms: ConfirmField = {
 `open` admits a value the list does not offer, which is what turns a closed menu into a suggestion
 list. A choice marked `disabled` is shown and refused at every door, including seeded values.
 Filter stored answers through `parseValues` or `parseValue` before seeding them; an `undefined`
-result means the value is no longer legal. An all-disabled select renders unanswerable. When it is
-required and closed, `auditSchema` reports a fault; when it is optional, that empty domain is legal.
+result means the value is no longer legal. An active all-disabled select renders unanswerable. When
+it is required and closed, `auditSchema` reports a fault; when it is optional or the whole field is
+disabled, that empty domain is legal.
 
 ```ts
 import type { SelectField } from '@orkestrel/form'
@@ -514,9 +516,12 @@ evaluateField(long, 'aaa', {})
 
 `auditSchema` is the semantic pass that structural validation cannot do: duplicate names, a missing
 group, a default its own control cannot hold, a rule on a control that cannot measure it, a minimum
-above its maximum, an uncompilable pattern, or a required closed choice field with no enabled
-choice. It runs inside `createForm` and inside `parseForm`, so a consumer rarely calls it directly —
-but it is exported, because a schema editor wants the diagnostics before it constructs anything.
+above its maximum, or an uncompilable pattern. It also reports an active required closed `select`
+with no enabled choice and an active `checkbox` whose positive `minimum` exceeds its enabled-choice
+count. A required `checkbox` alone remains satisfiable because `[]` is a present answer. Disabled
+fields are exempt from both satisfiability faults. The audit runs inside `createForm` and inside
+`parseForm`, so a consumer rarely calls it directly — but it is exported, because a schema editor
+wants the diagnostics before it constructs anything.
 
 **Its returned strings are human diagnostics, not a stable machine contract.** Read them, show them,
 log them. Do not branch on their text or parse a field name out of them: the wording is free to
@@ -565,12 +570,16 @@ A form opens `editing`, turns `settled` on its first valid submit, and turns `ab
 destroyed before settling. Both end states are terminal, and every write to a form in either one is
 refused with a `FormError`. Every getter keeps answering afterwards.
 
-A destroy requested from inside a listener refuses every write immediately. `status` still reads
-its pre-teardown value until the interrupted event batch finishes.
+A destroy requested while a mutation batch is open records the request, refuses every subsequent
+write from that instant, and defers teardown until the outermost batch closes. The batch's own
+outcome wins. If it settles the form, the form ends `settled`, `answer` resolves, and no `abandon`
+is emitted. Teardown never advances into the batch, and the batch is never aborted or rolled back.
+The pending request is derived, unnamed state, so `FormStatus` gains no fourth member.
 
-**There is no `check()`.** `errors` is always current: it is computed at construction and again
-after every mutation, and the `validate` event fires exactly when that list's content changes. A
-caller never has to remember to revalidate, and a renderer never reads a stale error.
+**There is no `check()`.** `errors` is computed at construction and after every mutation whose
+evaluation completes, and the `validate` event fires exactly when that list's content changes. If a
+custom validator throws mid-mutation, the throw escapes after earlier state changes and leaves the
+previous error list in place. The custom seam below states the exact partial-state boundary.
 
 **`valid` and `dirty` are derived on read.** `valid` is true when `errors` is empty. `dirty` is true
 once the answers differ from the ones the form opened with. Neither is stored, so neither can drift.
@@ -687,16 +696,17 @@ form.fill('email', 'grace@example.com')
 form.errors // [] — refilling the field clears its external failure
 
 form.clear()
-form.values // { plan: 'free' } — back to the schema's defaults
+form.values // { plan: 'free' } — back to the answers the form opened with
 form.dirty // false
 ```
 
 ### Park-as-Promise: `answer`
 
 `answer` is the form's whole point on a server. It resolves with the submitted values on the first
-valid submit, and rejects with a `FormError` coded `ABANDONED` when the form is destroyed before it
-settles. One task can await it while an entirely different task fills and submits the form, which is
-what a parked question looks like when a promise is the only thing that has to cross between them.
+valid submit, and rejects with a `FormError` coded `ABANDONED` when teardown abandons the form before
+it settles. One task can await it while an entirely different task fills and submits the form,
+which is what a parked question looks like when a promise is the only thing that has to cross
+between them.
 
 Nothing has to await it. An unawaited form that is destroyed does not take the host down with it.
 
@@ -738,20 +748,21 @@ The first valid submit is the only one. It resolves `answer`, emits `submit`, se
 `FormError` coded `SETTLED`. A failed submit settles nothing and leaves the form open.
 
 `destroy` tears the form down. Destroying twice does nothing the second time. A form that already
-settled keeps its `settled` status and announces nothing; a form still `editing` turns `abandoned`,
-rejects `answer`, and emits `abandon`.
+settled keeps its `settled` status and announces nothing. An editing form turns `abandoned`, rejects
+`answer`, and emits `abandon` unless the request was deferred behind a mutation batch that settles
+before teardown.
 
 ## Events
 
 Five events, and each carries what a listener needs to act without reading the form back.
 
-| Event      | Payload                               | Fires                                                                                                                                         |
-| ---------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fill`     | the field's `name`, and its new value | Once per field whose answer actually moved, in the order written. The value is `undefined` when the answer was cleared.                       |
-| `validate` | every current `FieldError`            | Whenever the error list's content changes — after a fill, an invalidate, a clear, or a submit. Empty when the change was to no errors at all. |
-| `submit`   | the submitted `FormValues`            | On the submit that settles the form, and only that one.                                                                                       |
-| `clear`    | nothing                               | On `clear`, before any `validate` the clear caused.                                                                                           |
-| `abandon`  | nothing                               | On the `destroy` that abandons an unsettled form. Never on a settled one.                                                                     |
+| Event      | Payload                               | Fires                                                                                                                                                                   |
+| ---------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fill`     | the field's `name`, and its new value | Once per field whose answer actually moved, in the order written. The value is `undefined` when the answer was cleared.                                                 |
+| `validate` | every current `FieldError`            | Whenever the error list's content changes — after a fill, an invalidate, a clear, or a submit. Empty when the change was to no errors at all.                           |
+| `submit`   | the submitted `FormValues`            | On the submit that settles the form, and only that one.                                                                                                                 |
+| `clear`    | nothing                               | On a completed `clear`, before any `validate` it caused. A custom-validator throw during reevaluation resets state but emits no `clear` and leaves the previous errors. |
+| `abandon`  | nothing                               | On the `destroy` that abandons an unsettled form. Never on a settled one.                                                                                               |
 
 Wire listeners at construction through `FormOptions.on`, or afterwards through the `emitter`. Both
 reach the same typed emitter, and a listener that throws is isolated and reported to
@@ -946,7 +957,7 @@ call signature and no named members.
 | `invalidate` | `void`                     | Fail a field from outside, for what the rules cannot see. It lasts until the field is filled or cleared.   |
 | `submit`     | `FormResult`               | Check every answer and settle the form when they all pass; otherwise return every error that stopped them. |
 | `clear`      | `void`                     | Return every answer to the ones the form opened with: defaults overlaid with seeded `values`.              |
-| `destroy`    | `void`                     | Tear the form down, abandoning it when it has not settled. Idempotent.                                     |
+| `destroy`    | `void`                     | Request teardown. Idempotent; an in-flight settlement can win before deferred teardown.                    |
 
 ### Errors
 
@@ -1013,16 +1024,21 @@ These invariants hold across [`src/core`](../src/core) and this guide.
 3. **The schema is owned.** `Form` clones the schema at construction and freezes every nested group,
    field, rule, choice, and list. A later edit to the caller's object changes nothing inside the
    form, and no getter returns a live internal reference.
-4. **Errors are always current.** `errors` is recomputed at construction and after every mutation,
-   and `validate` fires exactly when that list's content changes. There is no `check`, and there is
-   no path by which a caller reads a stale error.
+4. **Errors are current after completed evaluation.** `errors` is recomputed at construction and
+   after every mutation whose evaluation completes, and `validate` fires exactly when that list's
+   content changes. A custom-validator throw escapes mid-evaluation. After a throwing `fill`, the
+   form holds the new answers beside the pre-fill errors. A throwing `invalidate` records its
+   failure but keeps that stale list. A throwing `clear` resets answers, touched fields, and
+   invalidations but emits no `clear` and leaves the previous errors. There is no `check`.
 5. **`valid` and `dirty` are derived.** Both are computed on read from `errors` and from the
    answers, so neither can drift from what the form holds.
 6. **A write is all-or-nothing.** `fill` checks every answer against its control before writing any,
    so a `FIELD` or `CONTROL` failure leaves the form exactly as it was.
 7. **Settle once, terminally.** The first valid submit resolves `answer`, emits `submit`, and sets
-   `status` to `settled`; every later write throws. A destroy before settling sets `abandoned`,
-   rejects `answer` with `ABANDONED`, and emits `abandon`. Neither end state is left, and every
+   `status` to `settled`; every later write throws. A destroy not overtaken by an in-flight
+   settlement sets `abandoned`, rejects `answer` with `ABANDONED`, and emits `abandon`. The exception
+   is a destroy deferred behind a mutation batch that settles before teardown: the form ends
+   `settled`, `answer` resolves, and no `abandon` is emitted. Neither end state is left, and every
    getter keeps answering in both.
 8. **A disabled field is out of the form.** It is not evaluated and not submitted. `hidden` and
    `locked` are rendering facts only: both are still evaluated and still submitted.

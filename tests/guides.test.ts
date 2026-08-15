@@ -101,9 +101,18 @@ const manifest = parseManifest(
 	'guides',
 )
 const sources = createSourceManager({ files, modules: MODULES })
+const readme = createGuide(requireValue(files['README.md'], 'Missing file: README.md'))
 
-it('loads the root README into guide parity', () => {
-	expect(files['README.md']).toBeDefined()
+it('imports only real exports in every root README ```ts fence', () => {
+	const fences = readme.fences().filter((fence) => fence.language === EXAMPLE_LANGUAGE)
+	for (const fence of fences) {
+		for (const { specifier, names } of fenceImports(fence.code)) {
+			const imported = sources.source(specifier)
+			if (imported === undefined) continue
+			const surface = imported.surface().map((symbol) => symbol.name)
+			expect(findMissing(names, surface)).toEqual([])
+		}
+	}
 })
 
 it('manifest lists at least one guide', () => {

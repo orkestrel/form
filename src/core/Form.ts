@@ -32,10 +32,13 @@ import { isFormSchema } from './validators.js'
  * @remarks
  * The form owns its schema, so a later edit to the schema the caller passed changes nothing here.
  *
- * `errors` is always current: it is recomputed at construction and after every mutation, and the
- * `validate` event fires exactly when that list's content changes. There is no separate check.
+ * `errors` is recomputed at construction and after every mutation whose evaluation completes,
+ * and the `validate` event fires exactly when that list's content changes. A throwing custom
+ * validator escapes after any preceding state changes and leaves the prior error list in place.
+ * There is no separate check.
  *
- * `valid` and `dirty` are derived on read, never stored, so neither can drift from the answers.
+ * `valid` and `dirty` are derived on read from the error list and answers respectively, never
+ * stored.
  *
  * @example
  * ```ts
@@ -59,7 +62,7 @@ export class Form implements FormInterface {
 	readonly #resolvers = Promise.withResolvers<FormValues>()
 	#errors: readonly FieldError[] = Object.freeze([])
 	#status: FormStatus = 'editing'
-	#emissions = 0
+	#batchDepth = 0
 	#pending = false
 
 	/**
@@ -163,7 +166,7 @@ export class Form implements FormInterface {
 		return Object.freeze(values)
 	}
 
-	/** Every error the current answers carry. */
+	/** Every error the last completed evaluation produced. */
 	get errors(): readonly FieldError[] {
 		return this.#errors
 	}
@@ -178,7 +181,7 @@ export class Form implements FormInterface {
 		return this.#status
 	}
 
-	/** Whether the current answers pass every rule. */
+	/** Whether the last completed evaluation found no error. */
 	get valid(): boolean {
 		return this.#errors.length === 0
 	}
@@ -193,7 +196,7 @@ export class Form implements FormInterface {
 	 *
 	 * @remarks
 	 * It resolves with the submitted values on the first valid submit, and rejects with a
-	 * {@link FormError} coded `ABANDONED` when the form is destroyed before settling.
+	 * {@link FormError} coded `ABANDONED` when teardown abandons the form before it settles.
 	 */
 	get answer(): Promise<FormValues> {
 		return this.#resolvers.promise
@@ -250,7 +253,7 @@ export class Form implements FormInterface {
 			}
 		}
 
-		this.#emitBatch(() => {
+		this.#batch(() => {
 			const moved: string[] = []
 
 			for (const [name, answer] of entries) {
@@ -302,7 +305,7 @@ export class Form implements FormInterface {
 	invalidate(name: string, message: string): void {
 		this.#gate()
 		this.#requireField(name)
-		this.#emitBatch(() => {
+		this.#batch(() => {
 			this.#invalidations.set(name, message)
 			if (this.#evaluate()) this.#emitter.emit('validate', this.#errors)
 		})
@@ -320,7 +323,7 @@ export class Form implements FormInterface {
 	submit(): FormResult {
 		this.#gate()
 
-		return this.#emitBatch(() => {
+		return this.#batch(() => {
 			const changed = this.#evaluate()
 			const stopped = this.#errors.length > 0
 
@@ -351,7 +354,7 @@ export class Form implements FormInterface {
 	clear(): void {
 		this.#gate()
 
-		this.#emitBatch(() => {
+		this.#batch(() => {
 			for (const name of Object.keys(this.#values)) delete this.#values[name]
 			for (const [name, value] of Object.entries(this.#baseline)) {
 				Object.defineProperty(this.#values, name, {
@@ -377,13 +380,15 @@ export class Form implements FormInterface {
 	 *
 	 * @remarks
 	 * Destroying twice does nothing the second time. A settled form keeps its `settled` status and
-	 * announces nothing. Every getter keeps answering afterwards; every write is refused.
+	 * announces nothing. A request from inside a listener defers teardown until the outermost
+	 * mutation batch closes, so an in-flight settlement can win and leave the form `settled` rather
+	 * than `abandoned`. Every getter keeps answering afterwards; every write is refused.
 	 */
 	destroy(): void {
 		if (this.#pending) return
 
 		this.#pending = true
-		if (this.#emissions === 0) this.#teardown()
+		if (this.#batchDepth === 0) this.#teardown()
 	}
 
 	// Refuse a write to a form that settled before considering whether teardown was requested.
@@ -463,14 +468,14 @@ export class Form implements FormInterface {
 		return Object.freeze(answers)
 	}
 
-	#emitBatch<T>(callback: () => T): T {
-		this.#emissions += 1
+	#batch<T>(callback: () => T): T {
+		this.#batchDepth += 1
 
 		try {
 			return callback()
 		} finally {
-			this.#emissions -= 1
-			if (this.#emissions === 0 && this.#pending) this.#teardown()
+			this.#batchDepth -= 1
+			if (this.#batchDepth === 0 && this.#pending) this.#teardown()
 		}
 	}
 

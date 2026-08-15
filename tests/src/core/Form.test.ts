@@ -582,6 +582,28 @@ describe('Form destroy', () => {
 		expect(form.status).toBe('abandoned')
 	})
 
+	it('tears down once when a listener requests destroy twice', () => {
+		const abandons = createRecorder<FormEventMap['abandon']>()
+		const form = new Form(
+			{ fields: [{ control: 'text', name: 'name' }] },
+			{
+				on: {
+					fill: () => {
+						form.destroy()
+						form.destroy()
+					},
+					abandon: abandons.handler,
+				},
+			},
+		)
+
+		form.fill('name', 'Ada')
+
+		expect(abandons.count).toBe(1)
+		expect(form.status).toBe('abandoned')
+		expect(form.emitter.destroyed).toBe(true)
+	})
+
 	it('keeps form lifecycle independent from bare emitter destruction', async () => {
 		const form = new Form({ fields: [{ control: 'text', name: 'name' }] })
 
@@ -801,6 +823,54 @@ describe('Form destroy', () => {
 })
 
 describe('Form rules', () => {
+	it('preserves partial mutation state when a custom validator throws', () => {
+		const failure = new Error('validator exploded')
+		const clears = createRecorder<FormEventMap['clear']>()
+		let throwing = false
+		const form = new Form(
+			{
+				fields: [
+					{
+						control: 'text',
+						name: 'name',
+						default: 'before',
+						rule: {
+							custom: (value) => {
+								if (throwing) throw failure
+								return value === 'before' ? 'Before fill' : true
+							},
+						},
+					},
+				],
+			},
+			{ on: { clear: clears.handler } },
+		)
+
+		throwing = true
+		const fill = attempt(() => form.fill('name', 'after'))
+		expect(fill.success ? undefined : fill.error).toBe(failure)
+		expect(form.values).toStrictEqual({ name: 'after' })
+		expect(form.errors).toStrictEqual([{ field: 'name', message: 'Before fill' }])
+
+		const invalidate = attempt(() => form.invalidate('name', 'After fill'))
+		expect(invalidate.success ? undefined : invalidate.error).toBe(failure)
+		expect(form.errors).toStrictEqual([{ field: 'name', message: 'Before fill' }])
+
+		throwing = false
+		expect(form.submit()).toStrictEqual({
+			success: false,
+			error: [{ field: 'name', message: 'After fill' }],
+		})
+
+		throwing = true
+		const clear = attempt(() => form.clear())
+		expect(clear.success ? undefined : clear.error).toBe(failure)
+		expect(form.values).toStrictEqual({ name: 'before' })
+		expect(form.touched.size).toBe(0)
+		expect(form.errors).toStrictEqual([{ field: 'name', message: 'After fill' }])
+		expect(clears.count).toBe(0)
+	})
+
 	it('runs a custom rule once per fill and shows it every answer', () => {
 		const seen: FormValues[] = []
 		const schema: FormSchema = {
