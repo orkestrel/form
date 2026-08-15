@@ -1,5 +1,6 @@
 import type { FieldRuleName, FormField, FormSchema, FormValues } from '../../../src/core/types.js'
 import {
+	auditSchema,
 	computeDefaults,
 	evaluateField,
 	evaluateForm,
@@ -9,6 +10,7 @@ import {
 	matchesValues,
 	serializeForm,
 } from '../../../src/core/helpers.js'
+import { PATTERN_LIMIT } from '../../../src/core/constants.js'
 import { describe, expect, it } from 'vitest'
 
 describe('matchesField', () => {
@@ -527,5 +529,171 @@ describe('form helpers', () => {
 		}
 
 		expect(extractGroups(schema).map((group) => group.name)).toStrictEqual(['second', 'first'])
+	})
+})
+
+describe('auditSchema', () => {
+	it('reports field and group identity faults and accepts their sound forms', () => {
+		expect(
+			auditSchema({
+				groups: [
+					{ name: 'profile', label: 'Profile' },
+					{ name: 'profile', label: 'Duplicate' },
+				],
+				fields: [
+					{ control: 'text', name: '' },
+					{ control: 'text', name: 'email', group: 'missing' },
+					{ control: 'text', name: 'email' },
+				],
+			}),
+		).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining('profile'),
+				expect.stringContaining('empty'),
+				expect.stringContaining('missing'),
+				expect.stringContaining('email'),
+			]),
+		)
+		expect(
+			auditSchema({
+				groups: [{ name: 'profile', label: 'Profile' }],
+				fields: [{ control: 'text', name: 'email', group: 'profile' }],
+			}),
+		).toStrictEqual([])
+	})
+
+	it('reports invalid defaults and accepts matching defaults', () => {
+		const invalid: FormSchema = {
+			fields: [
+				{ control: 'text', name: 'text', default: 'ok' },
+				{ control: 'number', name: 'number', default: Number.NaN },
+				{ control: 'date', name: 'date', default: '2026-99-99' },
+				{ control: 'time', name: 'time', default: '25:00' },
+				{ control: 'datetime', name: 'datetime', default: '2026-08-15 09:30' },
+				{ control: 'color', name: 'color', default: 'blue' },
+				{
+					control: 'select',
+					name: 'select',
+					choices: [{ value: 'one', label: 'One' }],
+					default: 'two',
+				},
+				{
+					control: 'checkbox',
+					name: 'checkbox',
+					choices: [{ value: 'one', label: 'One' }],
+					default: ['one', 'one'],
+				},
+				{ control: 'file', name: 'file' },
+			],
+		}
+
+		expect(auditSchema(invalid)).toHaveLength(7)
+		expect(
+			auditSchema({
+				fields: [
+					{ control: 'number', name: 'number', default: 2 },
+					{ control: 'date', name: 'date', default: '2026-08-15' },
+					{ control: 'time', name: 'time', default: '09:30' },
+					{ control: 'datetime', name: 'datetime', default: '2026-08-15T09:30' },
+					{ control: 'color', name: 'color', default: '#336699' },
+					{
+						control: 'select',
+						name: 'select',
+						choices: [{ value: 'one', label: 'One' }],
+						default: 'one',
+					},
+					{
+						control: 'checkbox',
+						name: 'checkbox',
+						choices: [{ value: 'one', label: 'One' }],
+						default: ['one'],
+					},
+				],
+			}),
+		).toStrictEqual([])
+	})
+
+	it('reports incompatible rules and accepts compatible rules', () => {
+		const invalid: FormSchema = {
+			fields: [
+				{ control: 'text', name: 'text-bound', rule: { minimum: 'one' } },
+				{ control: 'date', name: 'date-bound', rule: { maximum: 2 } },
+				{ control: 'text', name: 'text-step', rule: { step: 1 } },
+				{ control: 'number', name: 'number-step', rule: { step: 0 } },
+				{ control: 'number', name: 'number-pattern', rule: { pattern: '\\d' } },
+				{ control: 'confirm', name: 'confirm-email', rule: { email: true } },
+				{
+					control: 'checkbox',
+					name: 'checkbox-url',
+					choices: [],
+					rule: { url: true },
+				},
+				{ control: 'file', name: 'file-alphanumeric', rule: { alphanumeric: true } },
+				{ control: 'confirm', name: 'confirm-integer', rule: { integer: true } },
+			],
+		}
+
+		expect(auditSchema(invalid)).toHaveLength(9)
+		expect(
+			auditSchema({
+				fields: [
+					{ control: 'text', name: 'text', rule: { minimum: 1, pattern: '^a$' } },
+					{ control: 'number', name: 'number', rule: { minimum: 0, step: 1, integer: true } },
+					{ control: 'date', name: 'date', rule: { minimum: '2026-01-01' } },
+				],
+			}),
+		).toStrictEqual([])
+	})
+
+	it('checks authored pattern validity and the exact length boundary', () => {
+		expect(
+			auditSchema({
+				fields: [
+					{ control: 'text', name: 'invalid', rule: { pattern: '[' } },
+					{ control: 'text', name: 'long', rule: { pattern: 'a'.repeat(PATTERN_LIMIT + 1) } },
+				],
+			}),
+		).toHaveLength(2)
+		expect(
+			auditSchema({
+				fields: [
+					{ control: 'text', name: 'boundary', rule: { pattern: 'a'.repeat(PATTERN_LIMIT) } },
+				],
+			}),
+		).toStrictEqual([])
+	})
+
+	it('reports reversed comparable bounds and invalid temporal operands', () => {
+		expect(
+			auditSchema({
+				fields: [
+					{ control: 'number', name: 'number', rule: { minimum: 3, maximum: 2 } },
+					{
+						control: 'date',
+						name: 'date-order',
+						rule: { minimum: '2026-12-31', maximum: '2026-01-01' },
+					},
+					{ control: 'date', name: 'date-lexical', rule: { minimum: 'bad' } },
+					{ control: 'time', name: 'time-lexical', rule: { maximum: '25:00' } },
+					{
+						control: 'datetime',
+						name: 'datetime-lexical',
+						rule: { minimum: '2026-08-15 09:30' },
+					},
+				],
+			}),
+		).toHaveLength(5)
+		expect(
+			auditSchema({
+				fields: [
+					{ control: 'number', name: 'number', rule: { minimum: 2, maximum: 3 } },
+					{
+						control: 'datetime',
+						name: 'datetime',
+						rule: { minimum: '2026-08-15T09:30', maximum: '2026-08-15T10:30' },
+					},
+				],
+			}),
+		).toStrictEqual([])
 	})
 })

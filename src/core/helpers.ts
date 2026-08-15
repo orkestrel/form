@@ -512,3 +512,153 @@ export function extractGroups(schema: FormSchema): readonly FormGroup[] {
 
 	return Object.freeze(groups)
 }
+
+/**
+ * Audit a structurally valid schema for domain invariants.
+ *
+ * @param schema - The form schema to audit.
+ * @returns Human-readable invariant violations, or an empty list when the schema is sound.
+ */
+export function auditSchema(schema: FormSchema): readonly string[] {
+	const faults: string[] = []
+	const fields = new Set<string>()
+	const groups = new Set<string>()
+
+	if (schema.groups !== undefined) {
+		for (const group of schema.groups) {
+			if (groups.has(group.name)) faults.push(`Group "${group.name}" is declared more than once`)
+			groups.add(group.name)
+		}
+	}
+
+	for (const field of schema.fields) {
+		if (field.name.length === 0) faults.push('Field "" has an empty name')
+		if (fields.has(field.name)) faults.push(`Field "${field.name}" is declared more than once`)
+		fields.add(field.name)
+
+		if (field.group !== undefined && !groups.has(field.group)) {
+			faults.push(`Field "${field.name}" references missing group "${field.group}"`)
+		}
+
+		switch (field.control) {
+			case 'password':
+			case 'file':
+				break
+			case 'text':
+			case 'editor':
+			case 'number':
+			case 'date':
+			case 'time':
+			case 'datetime':
+			case 'color':
+			case 'confirm':
+			case 'select':
+			case 'checkbox':
+				if (field.default !== undefined && !matchesField(field, field.default)) {
+					faults.push(`Field "${field.name}" has an invalid default`)
+				}
+				break
+		}
+
+		const rule = field.rule
+		if (rule === undefined) continue
+
+		const temporal =
+			field.control === 'date' || field.control === 'time' || field.control === 'datetime'
+
+		if (isString(rule.minimum) && !temporal) {
+			faults.push(`Field "${field.name}" has a string minimum on ${field.control}`)
+		}
+		if (isString(rule.maximum) && !temporal) {
+			faults.push(`Field "${field.name}" has a string maximum on ${field.control}`)
+		}
+		if (isFiniteNumber(rule.minimum) && temporal) {
+			faults.push(`Field "${field.name}" has a numeric minimum on ${field.control}`)
+		}
+		if (isFiniteNumber(rule.maximum) && temporal) {
+			faults.push(`Field "${field.name}" has a numeric maximum on ${field.control}`)
+		}
+
+		if (rule.step !== undefined && field.control !== 'number') {
+			faults.push(`Field "${field.name}" has step on ${field.control}`)
+		}
+		if (rule.step !== undefined && rule.step <= 0) {
+			faults.push(`Field "${field.name}" has a non-positive step`)
+		}
+
+		const stringless =
+			field.control === 'number' ||
+			field.control === 'confirm' ||
+			field.control === 'checkbox' ||
+			field.control === 'file'
+
+		if (rule.pattern !== undefined && stringless) {
+			faults.push(`Field "${field.name}" has pattern on ${field.control}`)
+		}
+		if (rule.email === true && stringless) {
+			faults.push(`Field "${field.name}" has email on ${field.control}`)
+		}
+		if (rule.url === true && stringless) {
+			faults.push(`Field "${field.name}" has url on ${field.control}`)
+		}
+		if (rule.alphanumeric === true && stringless) {
+			faults.push(`Field "${field.name}" has alphanumeric on ${field.control}`)
+		}
+		if (
+			rule.integer === true &&
+			(field.control === 'confirm' || field.control === 'checkbox' || field.control === 'file')
+		) {
+			faults.push(`Field "${field.name}" has integer on ${field.control}`)
+		}
+
+		if (rule.pattern !== undefined) {
+			if (rule.pattern.length > PATTERN_LIMIT) {
+				faults.push(`Field "${field.name}" has a pattern longer than ${PATTERN_LIMIT}`)
+			} else {
+				try {
+					RegExp(rule.pattern)
+				} catch {
+					faults.push(`Field "${field.name}" has an invalid pattern`)
+				}
+			}
+		}
+
+		if (
+			(isFiniteNumber(rule.minimum) &&
+				isFiniteNumber(rule.maximum) &&
+				rule.minimum > rule.maximum) ||
+			(isString(rule.minimum) && isString(rule.maximum) && rule.minimum > rule.maximum)
+		) {
+			faults.push(`Field "${field.name}" has minimum greater than maximum`)
+		}
+
+		if (field.control === 'date') {
+			if (isString(rule.minimum) && !DATE_PATTERN.test(rule.minimum)) {
+				faults.push(`Field "${field.name}" has an invalid date minimum`)
+			}
+			if (isString(rule.maximum) && !DATE_PATTERN.test(rule.maximum)) {
+				faults.push(`Field "${field.name}" has an invalid date maximum`)
+			}
+		}
+
+		if (field.control === 'time') {
+			if (isString(rule.minimum) && !TIME_PATTERN.test(rule.minimum)) {
+				faults.push(`Field "${field.name}" has an invalid time minimum`)
+			}
+			if (isString(rule.maximum) && !TIME_PATTERN.test(rule.maximum)) {
+				faults.push(`Field "${field.name}" has an invalid time maximum`)
+			}
+		}
+
+		if (field.control === 'datetime') {
+			if (isString(rule.minimum) && !DATETIME_PATTERN.test(rule.minimum)) {
+				faults.push(`Field "${field.name}" has an invalid datetime minimum`)
+			}
+			if (isString(rule.maximum) && !DATETIME_PATTERN.test(rule.maximum)) {
+				faults.push(`Field "${field.name}" has an invalid datetime maximum`)
+			}
+		}
+	}
+
+	return Object.freeze(faults)
+}
