@@ -1,6 +1,7 @@
 import type {
 	FieldControl,
 	FieldRuleName,
+	FieldValidator,
 	FieldValue,
 	FormField,
 	FormSchema,
@@ -401,6 +402,27 @@ export function createTextPopulationSchema(key: string, rule: boolean): FormSche
 
 export function passValidation(): true {
 	return true
+}
+
+/**
+ * Build a {@link FieldValidator} that answers each call from a fixed sequence, clamping to the
+ * last entry once the sequence is exhausted.
+ *
+ * @param answers The answer for each call in order; the final entry repeats after exhaustion.
+ * @returns A validator whose nth call returns `answers[n]`, clamped to the last index.
+ * @example
+ * const flaky = createSequenceValidator(['Not yet', true])
+ * flaky(undefined, {}) // 'Not yet'
+ * flaky(undefined, {}) // true
+ * flaky(undefined, {}) // true
+ */
+export function createSequenceValidator(answers: ReadonlyArray<true | string>): FieldValidator {
+	let calls = 0
+	return () => {
+		const answer = answers[Math.min(calls, answers.length - 1)]
+		calls += 1
+		return answer ?? true
+	}
 }
 
 export function createNodeBudgetSchema(count: number): FormSchema {

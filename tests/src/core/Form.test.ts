@@ -12,6 +12,7 @@ import { Form, isFormError, isFormSchema } from '@src/core'
 import { attempt } from '@orkestrel/contract'
 import { createRecorder, waitForDelay } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
+import { createSequenceValidator } from '../../setup.js'
 
 // One schema carries the cases most tests need: two required fields make the form invalid from
 // birth, `topics` and `nickname` seed defaults, `referral` is disabled so it is neither checked
@@ -694,11 +695,7 @@ describe('Form disable and enable', () => {
 
 describe('Form submit', () => {
 	it('decides after a validate listener enables an invalid field', () => {
-		let calls = 0
-		const flaky: FieldValidator = () => {
-			calls += 1
-			return calls === 1 ? 'Not yet' : true
-		}
+		const flaky = createSequenceValidator(['Not yet', true])
 		const form = new Form({
 			name: 'r3',
 			label: 'r3',
@@ -774,16 +771,23 @@ describe('Form submit', () => {
 	})
 
 	it('returns the settlement made by a nested submit after its listener repairs the form', async () => {
-		let calls = 0
-		const flaky: FieldValidator = () => {
-			calls += 1
-			return calls === 1 ? 'Not yet' : true
-		}
+		const flaky = createSequenceValidator(['Not yet', true])
+		const calls = createRecorder<Parameters<FieldValidator>>()
 		const form = new Form({
 			name: 'recursive',
 			label: 'Recursive',
 			fields: [
-				{ control: 'text', name: 'y', label: 'Y', rule: { custom: flaky } },
+				{
+					control: 'text',
+					name: 'y',
+					label: 'Y',
+					rule: {
+						custom: (value, values) => {
+							calls.handler(value, values)
+							return flaky(value, values)
+						},
+					},
+				},
 				{ control: 'text', name: 'x', label: 'X', rule: { required: true } },
 			],
 		})
@@ -803,7 +807,7 @@ describe('Form submit', () => {
 		expect(armed).toBe(false)
 		expect(submits.count).toBe(1)
 		expect(result).toStrictEqual({ success: true, value: { x: 'ready' } })
-		expect(calls).toBe(4)
+		expect(calls.count).toBe(4)
 		expect(form.status).toBe('settled')
 		await expect(form.answer).resolves.toStrictEqual({ x: 'ready' })
 	})
@@ -1000,6 +1004,7 @@ describe('Form clear', () => {
 		const fills = createRecorder<FormEventMap['fill']>()
 		const disables = createRecorder<FormEventMap['disable']>()
 		const enables = createRecorder<FormEventMap['enable']>()
+		form.fill('first', 'y')
 		form.disable('first')
 		form.enable('second')
 		expect([...form.disabled]).toStrictEqual(['first'])
@@ -1012,6 +1017,7 @@ describe('Form clear', () => {
 
 		expect([...form.disabled]).toStrictEqual(['second'])
 		expect(form.errors.map((error) => error.field)).toStrictEqual(['first'])
+		expect(form.values.first).toBeUndefined()
 		expect(fills.count).toBe(0)
 		expect(disables.count).toBe(0)
 		expect(enables.count).toBe(0)

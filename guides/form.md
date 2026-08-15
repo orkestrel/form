@@ -1187,12 +1187,13 @@ submit does about it.
 **A submit that changes the error list announces before it decides.** Its own evaluation moves that
 list only when a `custom` validator answers differently than it did at the last mutation — every
 other rule reads state that only a mutation changes, and every mutation already recomputed. When it
-does move, `validate` fires, the listeners run, and the submit evaluates once more before deciding.
+does move, `validate` fires and the listeners run; if any of them wrote, the submit evaluates once
+more before deciding.
 That is one further evaluation, not a loop until nothing changes.
 
 **One submit can therefore emit `validate` more than once.** A listener that fills, invalidates,
 disables, or enables announces its own change as it makes it, so a host counting emissions inside one
-submit can see two.
+submit can see more than one.
 
 **A refusal is the list checked at the decision, not a view of the form.** An evaluation that already
 failed stays the answer even when a listener then repairs or disables the field that failed. So
@@ -1479,13 +1480,13 @@ call signature and no named members.
 value with `isFormError` and branch on `code`; never match on message text. A custom validator's own
 throw is the caller's exception and escapes unchanged.
 
-| Code        | Raised when                                                                                                                                                                                               |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SCHEMA`    | The schema is not a form schema, `auditSchema` found a domain fault, or `cloneFormField` cannot own a field's `meta`. The constructor raises all three, and `cloneFormField` raises the third on its own. |
-| `FIELD`     | A name given to `fill`, `touch`, `invalidate`, `disable`, or `enable` is one the schema does not declare.                                                                                                 |
-| `CONTROL`   | A value written or seeded is one its field's control cannot hold.                                                                                                                                         |
-| `SETTLED`   | A write reached a form that has already settled.                                                                                                                                                          |
-| `ABANDONED` | A write reached a form that was destroyed before it settled, or `answer` rejected for that reason.                                                                                                        |
+| Code        | Raised when                                                                                                                                                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SCHEMA`    | The schema is not a form schema, `auditSchema` found a domain fault, or `cloneFormField` cannot own a field's `meta`. The constructor raises all three; `cloneFormField` and `serializeForm` each raise the third on their own. |
+| `FIELD`     | A name given to `fill`, `touch`, `invalidate`, `disable`, or `enable` is one the schema does not declare.                                                                                                                       |
+| `CONTROL`   | A value written or seeded is one its field's control cannot hold.                                                                                                                                                               |
+| `SETTLED`   | A write reached a form that has already settled.                                                                                                                                                                                |
+| `ABANDONED` | A write reached a form that was destroyed before it settled, or `answer` rejected for that reason.                                                                                                                              |
 
 ```ts
 import { createForm, isFormError } from '@orkestrel/form'
