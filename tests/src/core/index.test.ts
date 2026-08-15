@@ -13,9 +13,9 @@ import { Emitter } from '@orkestrel/emitter'
 import { createRecorder } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 
-// The entry publishes types alone, so this schema is the contract's compile-time proof: it
-// declares every FormField variant, and `npm run check` reads this file. A password field
-// carries no default by contract, so seeding one here would fail that check.
+// This schema is the contract's compile-time proof: it declares every FormField variant, and
+// `npm run check` reads this file. A password field carries no default by contract, so seeding
+// one here would fail that check.
 const SCHEMA: FormSchema = {
 	name: 'signup',
 	label: 'Sign up',
@@ -92,8 +92,32 @@ const SCHEMA: FormSchema = {
 }
 
 describe('src core entry', () => {
-	it('publishes no runtime surface', () => {
-		expect(Object.keys(entry)).toStrictEqual([])
+	it('publishes the exact engine runtime surface', () => {
+		expect(Object.keys(entry).sort()).toStrictEqual([
+			'ALPHANUMERIC_PATTERN',
+			'COLOR_PATTERN',
+			'DATETIME_PATTERN',
+			'DATE_PATTERN',
+			'DEFAULT_MASK',
+			'EMAIL_PATTERN',
+			'FIELD_CONTROLS',
+			'FORM_STATUSES',
+			'FormError',
+			'INTEGER_PATTERN',
+			'PATTERN_LIMIT',
+			'RULE_MESSAGES',
+			'TIME_PATTERN',
+			'URL_PATTERN',
+			'computeDefaults',
+			'evaluateField',
+			'evaluateForm',
+			'extractGroups',
+			'formatMessage',
+			'isFormError',
+			'matchesField',
+			'matchesValues',
+			'serializeForm',
+		])
 	})
 
 	it('narrows a select field to its own choices through the control discriminant', () => {
