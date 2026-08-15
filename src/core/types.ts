@@ -1,4 +1,4 @@
-import type { Result } from '@orkestrel/contract'
+import type { JSONRecord, Result } from '@orkestrel/contract'
 import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
 
 /**
@@ -98,7 +98,12 @@ export interface FieldChoice {
 /**
  * Check one value against the whole form.
  *
- * @param value - The value the field currently holds.
+ * @remarks
+ * It runs after every named rule, and it runs on an absent value as well as a present one. That
+ * is what makes a rule such as "required once the sibling says yes" expressible, and it means an
+ * unanswered field can carry both a `required` message and this validator's own.
+ *
+ * @param value - The value the field currently holds, or `undefined` when nobody has answered it.
  * @param values - Every answer the form holds, so a rule can read its siblings.
  * @returns `true` when the value passes, or the message explaining why it failed.
  * @throws The validator's own thrown value escapes the mutation call unchanged. When a form
@@ -112,7 +117,7 @@ export interface FieldChoice {
  * 	value === values.password ? true : 'Both passwords must match'
  * ```
  */
-export type FieldValidator = (value: FieldValue, values: FormValues) => true | string
+export type FieldValidator = (value: FieldValue | undefined, values: FormValues) => true | string
 
 /**
  * The constraints one field's value must satisfy.
@@ -177,7 +182,12 @@ export interface FieldError {
  * The three visibility switches differ in what they remove. `hidden` keeps the field out of
  * the rendered form, `locked` renders it unwritable, and both are still validated and still
  * submitted. `disabled` takes the field out of the form entirely: it is neither validated nor
- * submitted.
+ * submitted. It is the field's declared, opening state; {@link FormInterface.disabled} is the
+ * current fact, because a live form can move a field either way.
+ *
+ * `meta` is a bounded JSON carrier for whatever the schema declines to model. Evaluation never
+ * reads it, no rule sees it, and it round-trips verbatim through serialization. This package
+ * defines no key in it, so every key belongs to the host.
  */
 export interface FieldBase {
 	readonly name: string
@@ -188,6 +198,7 @@ export interface FieldBase {
 	readonly disabled?: boolean
 	readonly locked?: boolean
 	readonly rule?: FieldRule
+	readonly meta?: JSONRecord
 }
 
 /** A single line of text. */
@@ -377,14 +388,43 @@ export type FormResult = Result<FormValues, readonly FieldError[]>
  * @remarks
  * `fill` carries the field that changed and its new value, where `undefined` is the value
  * being cleared. `validate` carries the errors a check produced, empty when it found none.
- * `submit` fires only on a submit that passed. `clear` and `abandon` are signals.
+ * `disable` and `enable` each carry one field, and fire once per field whose state actually
+ * moved, in the order the schema declares them. `submit` fires only on a submit that passed.
+ * `clear` and `abandon` are signals.
  */
 export type FormEventMap = {
 	readonly fill: readonly [name: string, value: FieldValue | undefined]
 	readonly validate: readonly [errors: readonly FieldError[]]
+	readonly disable: readonly [name: string]
+	readonly enable: readonly [name: string]
 	readonly submit: readonly [values: FormValues]
 	readonly clear: readonly []
 	readonly abandon: readonly []
+}
+
+/**
+ * How to check a schema against a set of answers.
+ *
+ * @param options - The evaluation's settings.
+ * @remarks
+ * `messages` replaces the default message of a rule, keyed by {@link FieldRuleName}.
+ *
+ * `disabled` names the fields to leave out of the check. It replaces the schema's own
+ * {@link FieldBase.disabled} declarations rather than adding to them, because a live form's
+ * answer to which fields are in play is {@link FormInterface.disabled}, and a form always
+ * supplies that set.
+ *
+ * @example
+ * ```ts
+ * const options: EvaluationOptions = {
+ * 	messages: { required: 'This one is needed' },
+ * 	disabled: new Set(['nickname']),
+ * }
+ * ```
+ */
+export interface EvaluationOptions {
+	readonly messages?: Readonly<Partial<Record<FieldRuleName, string>>>
+	readonly disabled?: ReadonlySet<string>
 }
 
 /**
@@ -436,10 +476,27 @@ export interface FormInterface {
 	readonly schema: FormSchema
 	/** The answers held right now. */
 	readonly values: FormValues
+	/**
+	 * The answers the form opened with: the schema's defaults, overlaid with any seeded values.
+	 *
+	 * @remarks
+	 * It is fixed when the form opens and never moves again, so it is what `dirty` measures
+	 * against and what {@link FormInterface.clear} returns to.
+	 */
+	readonly baseline: FormValues
 	/** Every error the last check produced. */
 	readonly errors: readonly FieldError[]
 	/** The names of the fields somebody has visited. */
 	readonly touched: ReadonlySet<string>
+	/**
+	 * The names of the fields currently out of the form.
+	 *
+	 * @remarks
+	 * It opens as the set the schema declares through {@link FieldBase.disabled} and moves with
+	 * every {@link FormInterface.disable} and {@link FormInterface.enable} call, so the schema
+	 * holds the declaration and this holds the current fact.
+	 */
+	readonly disabled: ReadonlySet<string>
 	/** Where the form sits in its life. */
 	readonly status: FormStatus
 	/** Whether the last completed evaluation found no error. */
@@ -488,14 +545,67 @@ export interface FormInterface {
 	 */
 	invalidate(name: string, message: string): void
 	/**
+	 * Take every field out of the form.
+	 *
+	 * @remarks
+	 * A disabled field is neither evaluated nor submitted. Its answer is kept, and so is any
+	 * {@link FormInterface.invalidate} failure it carries, which is withheld from `errors` while
+	 * the field is out and restored when it comes back. The form emits `disable` once per field
+	 * whose state actually moved, in schema order, so a call that moves nothing announces
+	 * nothing. Disabling is a write, so a settled or abandoned form refuses it.
+	 */
+	disable(): void
+	/**
+	 * Take one field out of the form.
+	 *
+	 * @param name - The field's name.
+	 * @throws A {@link FormError} coded `FIELD` when the schema declares no such name.
+	 */
+	disable(name: string): void
+	/**
+	 * Take several fields out of the form.
+	 *
+	 * @param names - The field names.
+	 * @throws A {@link FormError} coded `FIELD` when the schema declares no such name. Every name
+	 *   is checked before any field moves, so one bad name leaves the whole call undone.
+	 */
+	disable(names: readonly string[]): void
+	/**
+	 * Put every field back into the form.
+	 *
+	 * @remarks
+	 * An enabled field is evaluated and submitted again, and any invalidation held while it was
+	 * out reappears in `errors`. The form emits `enable` once per field whose state actually
+	 * moved, in schema order. Enabling is a write, so a settled or abandoned form refuses it.
+	 */
+	enable(): void
+	/**
+	 * Put one field back into the form.
+	 *
+	 * @param name - The field's name.
+	 * @throws A {@link FormError} coded `FIELD` when the schema declares no such name.
+	 */
+	enable(name: string): void
+	/**
+	 * Put several fields back into the form.
+	 *
+	 * @param names - The field names.
+	 * @throws A {@link FormError} coded `FIELD` when the schema declares no such name. Every name
+	 *   is checked before any field moves, so one bad name leaves the whole call undone.
+	 */
+	enable(names: readonly string[]): void
+	/**
 	 * Check every answer and settle the form when they all pass.
 	 *
 	 * @returns The values on success, or every error that stopped them.
 	 */
 	submit(): FormResult
 	/**
-	 * Return every answer to the ones the form opened with: the schema's defaults, overlaid with
-	 * any seeded `values`.
+	 * Return every answer to {@link FormInterface.baseline}, the answers the form opened with.
+	 *
+	 * @remarks
+	 * The runtime disabled overlay resets with them, so {@link FormInterface.disabled} reads the
+	 * schema's declarations again.
 	 */
 	clear(): void
 	/**

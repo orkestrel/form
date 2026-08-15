@@ -1,6 +1,7 @@
 import type {
 	CheckboxField,
 	FieldRuleName,
+	FieldValidator,
 	FormError,
 	FormEventMap,
 	FormOptions,
@@ -8,6 +9,7 @@ import type {
 	FormSchema,
 	PasswordField,
 	SelectField,
+	TextField,
 } from '@src/core'
 import * as entry from '@src/core'
 import { Emitter } from '@orkestrel/emitter'
@@ -33,6 +35,7 @@ const SCHEMA: FormSchema = {
 			group: 'account',
 			placeholder: 'ada@example.com',
 			rule: { required: true, email: true },
+			meta: { column: 1, tags: ['contact'] },
 		},
 		{ control: 'editor', name: 'bio', label: 'Bio', group: 'profile', rule: { maximum: 240 } },
 		{
@@ -96,17 +99,25 @@ describe('src core entry', () => {
 	it('publishes the exact engine runtime surface', () => {
 		expect(Object.keys(entry).sort()).toStrictEqual([
 			'ALPHANUMERIC_PATTERN',
+			'CHOICE_LIMIT',
 			'COLOR_PATTERN',
 			'DATETIME_PATTERN',
 			'DATE_PATTERN',
 			'EMAIL_PATTERN',
 			'FIELD_CONTROLS',
+			'FIELD_LIMIT',
 			'FORM_STATUSES',
 			'Form',
 			'FormError',
+			'GROUP_LIMIT',
 			'INTEGER_PATTERN',
+			'LIST_LIMIT',
+			'NAME_LIMIT',
+			'NODE_LIMIT',
 			'PATTERN_LIMIT',
 			'RULE_MESSAGES',
+			'STRING_LIMIT',
+			'TEXT_LIMIT',
 			'TIME_PATTERN',
 			'URL_PATTERN',
 			'appliesRule',
@@ -167,6 +178,25 @@ describe('src core entry', () => {
 		expect(password?.mask).toBe('*')
 		expect(custom?.('opensesame', { repeat: 'opensesame' })).toBe(true)
 		expect(custom?.('opensesame', { repeat: 'sesame' })).toBe('Both passwords must match')
+	})
+
+	it('runs a custom rule on a field nobody has answered', () => {
+		const address: FieldValidator = (value, values) =>
+			values.subscribe === true && value === undefined ? 'Tell us where to write' : true
+
+		expect(address(undefined, { subscribe: true })).toBe('Tell us where to write')
+		expect(address(undefined, { subscribe: false })).toBe(true)
+		expect(address('ada@example.com', { subscribe: true })).toBe(true)
+	})
+
+	it('carries meta on a field and keeps it off the schema', () => {
+		const email = SCHEMA.fields.find((field): field is TextField => field.control === 'text')
+		// The conditional type is the negative half of this proof: it resolves to `true` the moment
+		// `meta` joins FormSchema, and this assignment stops compiling.
+		const schemaCarriesMeta: 'meta' extends keyof FormSchema ? true : false = false
+
+		expect(email?.meta).toStrictEqual({ column: 1, tags: ['contact'] })
+		expect(schemaCarriesMeta).toBe(false)
 	})
 
 	it('wires form options into a real emitter over the form event map', () => {
