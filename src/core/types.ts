@@ -66,7 +66,7 @@ export type FormValues = Readonly<Record<string, FieldValue>>
  * refuses every subsequent write immediately, and defers teardown until the outermost batch
  * closes. The batch outcome wins: a batch that settles the form leaves it `settled`, resolves
  * `answer`, and emits no `abandon`. Teardown never advances into, aborts, or rolls back the
- * batch. The pending request is derived state and adds no fourth status.
+ * batch. The pending request is private, unnamed state and adds no fourth status.
  */
 export type FormStatus = 'editing' | 'settled' | 'abandoned'
 

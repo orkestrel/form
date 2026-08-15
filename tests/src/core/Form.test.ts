@@ -869,6 +869,13 @@ describe('Form rules', () => {
 		expect(form.touched.size).toBe(0)
 		expect(form.errors).toStrictEqual([{ field: 'name', message: 'After fill' }])
 		expect(clears.count).toBe(0)
+
+		throwing = false
+		expect(form.submit()).toStrictEqual({
+			success: false,
+			error: [{ field: 'name', message: 'Before fill' }],
+		})
+		expect(form.errors).toStrictEqual([{ field: 'name', message: 'Before fill' }])
 	})
 
 	it('runs a custom rule once per fill and shows it every answer', () => {

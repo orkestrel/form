@@ -100,8 +100,7 @@ The entity, its factory, its contract, and the error it raises.
 `FormInterface`'s readonly data members stay here rather than in `## Methods`: `emitter` (the typed
 event surface), `schema` (the owned frozen copy), `values` (the answers held right now), `errors`
 (current after each completed evaluation), `touched` (the fields somebody has visited), `status`,
-`valid`, `dirty`, and
-`answer` (the promise that resolves on the first valid submit).
+`valid`, `dirty`, and `answer` (the promise that resolves on the first valid submit).
 
 ### Constants
 
@@ -347,9 +346,9 @@ const terms: ConfirmField = {
 `open` admits a value the list does not offer, which is what turns a closed menu into a suggestion
 list. A choice marked `disabled` is shown and refused at every door, including seeded values.
 Filter stored answers through `parseValues` or `parseValue` before seeding them; an `undefined`
-result means the value is no longer legal. An active all-disabled select renders unanswerable. When
-it is required and closed, `auditSchema` reports a fault; when it is optional or the whole field is
-disabled, that empty domain is legal.
+result means the value is no longer legal. An active, closed, all-disabled select is unanswerable
+and faults when required; an open select, an optional select, and a field-level disabled select are
+all legal.
 
 ```ts
 import type { SelectField } from '@orkestrel/form'
@@ -370,7 +369,8 @@ const plan: SelectField = {
 ### checkbox
 
 A checkbox value is the checked values as a list. Duplicates are refused, and `minimum` and
-`maximum` count selections rather than characters.
+`maximum` count selections rather than characters. `required` is satisfied by any present answer,
+including the empty list; an empty submission is a valid "none selected".
 
 ```ts
 import type { CheckboxField } from '@orkestrel/form'
@@ -574,12 +574,12 @@ A destroy requested while a mutation batch is open records the request, refuses 
 write from that instant, and defers teardown until the outermost batch closes. The batch's own
 outcome wins. If it settles the form, the form ends `settled`, `answer` resolves, and no `abandon`
 is emitted. Teardown never advances into the batch, and the batch is never aborted or rolled back.
-The pending request is derived, unnamed state, so `FormStatus` gains no fourth member.
+The pending request is private, unnamed state, so `FormStatus` gains no fourth member.
 
 **There is no `check()`.** `errors` is computed at construction and after every mutation whose
 evaluation completes, and the `validate` event fires exactly when that list's content changes. If a
 custom validator throws mid-mutation, the throw escapes after earlier state changes and leaves the
-previous error list in place. The custom seam below states the exact partial-state boundary.
+previous error list in place. Contract 4 states the exact partial-state boundary.
 
 **`valid` and `dirty` are derived on read.** `valid` is true when `errors` is empty. `dirty` is true
 once the answers differ from the ones the form opened with. Neither is stored, so neither can drift.
@@ -703,9 +703,9 @@ form.dirty // false
 ### Park-as-Promise: `answer`
 
 `answer` is the form's whole point on a server. It resolves with the submitted values on the first
-valid submit, and rejects with a `FormError` coded `ABANDONED` when teardown abandons the form before
-it settles. One task can await it while an entirely different task fills and submits the form,
-which is what a parked question looks like when a promise is the only thing that has to cross
+valid submit, and rejects with a `FormError` coded `ABANDONED` when teardown abandons the form
+before it settles. One task can await it while an entirely different task fills and submits the
+form, which is what a parked question looks like when a promise is the only thing that has to cross
 between them.
 
 Nothing has to await it. An unawaited form that is destroyed does not take the host down with it.
