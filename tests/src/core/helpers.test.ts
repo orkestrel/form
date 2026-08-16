@@ -34,6 +34,7 @@ import {
 	serializeForm,
 } from '@src/core'
 import { attempt } from '@orkestrel/contract'
+import { roundTripJSON } from '@orkestrel/test'
 import { PATTERN_LIMIT } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
@@ -818,7 +819,7 @@ describe('form helpers', () => {
 				{ control: 'file', name: 'files', accept: ['image/png', '.jpg'], multiple: true },
 			],
 		})
-		expect(JSON.parse(JSON.stringify(serialized))).toEqual(serialized)
+		expect(roundTripJSON(serialized)).toEqual(serialized)
 		expect(Object.keys(serialized)).toStrictEqual(['name', 'groups', 'fields'])
 		expect(JSON.stringify(serialized).indexOf('"choice"')).toBeLessThan(
 			JSON.stringify(serialized).indexOf('"files"'),
@@ -832,7 +833,7 @@ describe('form helpers', () => {
 		const serialized = serializeForm({
 			fields: [{ control: 'text', name: 'email', meta }],
 		})
-		const parsed = JSON.parse(JSON.stringify(serialized))
+		const parsed = roundTripJSON(serialized)
 
 		expect(parsed).toStrictEqual({
 			fields: [

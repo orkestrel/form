@@ -1,5 +1,6 @@
 import type { FieldRule, FormField, FormInterface, FormSchema, FormValues } from '@src/core'
 import { GUARD_DEPTH_LIMIT } from '@orkestrel/contract'
+import { createHostileValues, roundTripJSON } from '@orkestrel/test'
 import {
 	Form,
 	LIST_LIMIT,
@@ -228,22 +229,14 @@ describe('parseForm', () => {
 		).toBeUndefined()
 	})
 
-	it('never throws for cyclic or hostile input', () => {
-		const cyclic: Record<string, unknown> = { fields: [] }
-		cyclic.fields = [cyclic]
-		const hostile = new Proxy(
-			{ fields: [] },
-			{
-				ownKeys: () => {
-					throw new Error('hostile keys')
-				},
-			},
-		)
-
-		expect(() => parseForm(cyclic)).not.toThrow()
-		expect(parseForm(cyclic)).toBeUndefined()
-		expect(() => parseForm(hostile)).not.toThrow()
-		expect(parseForm(hostile)).toBeUndefined()
+	it('never throws for hostile input and refuses every corpus member', () => {
+		for (const [index, value] of createHostileValues().entries()) {
+			let parsed: FormSchema | undefined
+			expect(() => {
+				parsed = parseForm(value)
+			}, `hostile value ${index}`).not.toThrow()
+			expect(parsed, `hostile value ${index}`).toBeUndefined()
+		}
 	})
 
 	it('round-trips bounded metadata and owns prototype-looking keys', () => {
@@ -258,7 +251,7 @@ describe('parseForm', () => {
 				},
 			],
 		}
-		const wire: unknown = JSON.parse(JSON.stringify(serializeForm(schema)))
+		const wire: unknown = roundTripJSON(serializeForm(schema))
 		const parsed = parseForm(wire)
 
 		expect(parsed).toEqual(schema)

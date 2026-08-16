@@ -14,6 +14,7 @@ import {
 	matchesField,
 } from '@src/core'
 import { parseForm } from '@src/core'
+import { createHostileValues } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 
 describe('structural guards', () => {
@@ -104,23 +105,24 @@ describe('structural guards', () => {
 		expect(matchesField({ control: 'text', name: 'answer' }, value)).toBe(false)
 	})
 
-	it('is total for cycles, throwing property reads, and null-prototype records', () => {
-		const cyclic: Record<string, unknown> = { fields: [] }
-		cyclic.fields = [cyclic]
-		const hostile = new Proxy(
-			{ control: 'text', name: 'name' },
-			{
-				get: () => {
-					throw new Error('hostile get')
-				},
-			},
-		)
+	it('strictly refuses every hostile corpus member without throwing', () => {
+		for (const [index, value] of createHostileValues().entries()) {
+			let fieldAccepted: boolean | undefined
+			let schemaAccepted: boolean | undefined
+			expect(() => {
+				fieldAccepted = isFormField(value)
+			}, `field guard hostile value ${index}`).not.toThrow()
+			expect(fieldAccepted, `field guard hostile value ${index}`).toBe(false)
+			expect(() => {
+				schemaAccepted = isFormSchema(value)
+			}, `schema guard hostile value ${index}`).not.toThrow()
+			expect(schemaAccepted, `schema guard hostile value ${index}`).toBe(false)
+		}
+	})
+
+	it('accepts a valid null-prototype schema', () => {
 		const schema = Object.assign(Object.create(null), { fields: [] })
 
-		expect(() => isFormSchema(cyclic)).not.toThrow()
-		expect(isFormSchema(cyclic)).toBe(false)
-		expect(() => isFormField(hostile)).not.toThrow()
-		expect(isFormField(hostile)).toBe(false)
 		expect(isFormSchema(schema)).toBe(true)
 	})
 

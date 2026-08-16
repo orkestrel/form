@@ -22,7 +22,7 @@ import {
 	symbolKey,
 } from '@orkestrel/guide'
 import { readFileSync } from 'node:fs'
-import { createRecorder, requireValue } from '@orkestrel/test'
+import { createRecorder, requireValue, resolveRoot } from '@orkestrel/test'
 import { readInventory } from '@orkestrel/test/server'
 import type {
 	CheckboxField,
@@ -99,7 +99,7 @@ const INTERNAL: readonly string[] = Object.freeze([])
 /** Root-level files this package's guides link to. `readInventory` walks directories only. */
 const ROOT_FILES = Object.freeze(['AGENTS.md', 'README.md'])
 
-const root = new URL('../', import.meta.url)
+const root = resolveRoot(import.meta)
 const files: Record<string, string> = {
 	...readInventory(root, ['src', 'guides', 'tests'], { extensions: ['.ts', '.md'] }),
 }
