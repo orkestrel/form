@@ -456,7 +456,7 @@ describe('wire round trip', () => {
 			files: ['portrait.png', 'notes.jpg'],
 		}
 		const parsedValues = parseValues(expected, values)
-		const valuesWire: unknown = JSON.parse(JSON.stringify(values))
+		const valuesWire: unknown = roundTripJSON(values)
 
 		expect(parsedValues).toStrictEqual(values)
 		expect(parseValues(expected, { ...values, unknown: 'refused' })).toBeUndefined()
