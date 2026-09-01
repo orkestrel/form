@@ -47,6 +47,61 @@ import {
 import { FormError } from './errors.js'
 
 /**
+ * Writes one own enumerable data property onto a record.
+ *
+ * @param target - The record to write into.
+ * @param name - The property name to write.
+ * @param value - The value to store.
+ *
+ * @remarks
+ * Plain assignment runs an inherited setter, so writing a `__proto__` key that way reaches
+ * `Object.prototype` and leaves the record without the entry. Defining the property writes the
+ * record itself, whatever the prototype chain declares. The entry stays writable and configurable.
+ *
+ * @example
+ * ```ts
+ * const values: Record<string, number> = {}
+ * defineEntry(values, '__proto__', 1)
+ * Object.hasOwn(values, '__proto__') // true
+ * ```
+ */
+export function defineEntry<T>(target: Record<string, T>, name: string, value: T): void {
+	Object.defineProperty(target, name, {
+		value,
+		enumerable: true,
+		configurable: true,
+		writable: true,
+	})
+}
+
+/**
+ * Writes one own enumerable data property that cannot be rewritten or removed.
+ *
+ * @param target - The record to write into.
+ * @param name - The property name to write.
+ * @param value - The value to store.
+ *
+ * @remarks
+ * The prototype-safe write of {@link defineEntry}, sealed: the entry is neither writable nor
+ * configurable, so the record a parser hands back cannot be edited through the key it just filled.
+ *
+ * @example
+ * ```ts
+ * const values: Record<string, number> = {}
+ * freezeEntry(values, '__proto__', 1)
+ * Object.getOwnPropertyDescriptor(values, '__proto__')?.writable // false
+ * ```
+ */
+export function freezeEntry<T>(target: Record<string, T>, name: string, value: T): void {
+	Object.defineProperty(target, name, {
+		value,
+		enumerable: true,
+		configurable: false,
+		writable: false,
+	})
+}
+
+/**
  * Check whether a value has the shape required by one field control.
  *
  * @param field - The field that owns the value.
@@ -182,13 +237,7 @@ export function evaluateField(
 
 	if (value === undefined) {
 		if (rule?.required === true && appliesRule(field.control, 'required')) {
-			errors.push(
-				Object.freeze({
-					field: field.name,
-					message: formatMessage('required', undefined, messages),
-					rule: 'required',
-				}),
-			)
+			errors.push(createFieldError(field, 'required', undefined, messages))
 		}
 	}
 
@@ -222,13 +271,7 @@ export function evaluateField(
 		}
 
 		if (failed) {
-			errors.push(
-				Object.freeze({
-					field: field.name,
-					message: formatMessage('minimum', rule.minimum, messages),
-					rule: 'minimum',
-				}),
-			)
+			errors.push(createFieldError(field, 'minimum', rule.minimum, messages))
 		}
 	}
 
@@ -260,13 +303,7 @@ export function evaluateField(
 		}
 
 		if (failed) {
-			errors.push(
-				Object.freeze({
-					field: field.name,
-					message: formatMessage('maximum', rule.maximum, messages),
-					rule: 'maximum',
-				}),
-			)
+			errors.push(createFieldError(field, 'maximum', rule.maximum, messages))
 		}
 	}
 
@@ -280,13 +317,7 @@ export function evaluateField(
 			!isFiniteNumber(multiple) ||
 			Math.abs(multiple - Math.round(multiple)) > 1e-9
 		) {
-			errors.push(
-				Object.freeze({
-					field: field.name,
-					message: formatMessage('step', rule.step, messages),
-					rule: 'step',
-				}),
-			)
+			errors.push(createFieldError(field, 'step', rule.step, messages))
 		}
 	}
 
@@ -295,46 +326,22 @@ export function evaluateField(
 			const pattern = rule.pattern
 
 			if (pattern.length > PATTERN_LIMIT) {
-				errors.push(
-					Object.freeze({
-						field: field.name,
-						message: formatMessage('pattern', undefined, messages),
-						rule: 'pattern',
-					}),
-				)
+				errors.push(createFieldError(field, 'pattern', undefined, messages))
 			} else {
 				const outcome = attempt(() => new RegExp(pattern).test(value))
 
 				if (!outcome.success || !outcome.value) {
-					errors.push(
-						Object.freeze({
-							field: field.name,
-							message: formatMessage('pattern', undefined, messages),
-							rule: 'pattern',
-						}),
-					)
+					errors.push(createFieldError(field, 'pattern', undefined, messages))
 				}
 			}
 		}
 
 		if (rule.email === true && appliesRule(field.control, 'email') && !EMAIL_PATTERN.test(value)) {
-			errors.push(
-				Object.freeze({
-					field: field.name,
-					message: formatMessage('email', undefined, messages),
-					rule: 'email',
-				}),
-			)
+			errors.push(createFieldError(field, 'email', undefined, messages))
 		}
 
 		if (rule.url === true && appliesRule(field.control, 'url') && !URL_PATTERN.test(value)) {
-			errors.push(
-				Object.freeze({
-					field: field.name,
-					message: formatMessage('url', undefined, messages),
-					rule: 'url',
-				}),
-			)
+			errors.push(createFieldError(field, 'url', undefined, messages))
 		}
 
 		if (
@@ -342,13 +349,7 @@ export function evaluateField(
 			appliesRule(field.control, 'alphanumeric') &&
 			!ALPHANUMERIC_PATTERN.test(value)
 		) {
-			errors.push(
-				Object.freeze({
-					field: field.name,
-					message: formatMessage('alphanumeric', undefined, messages),
-					rule: 'alphanumeric',
-				}),
-			)
+			errors.push(createFieldError(field, 'alphanumeric', undefined, messages))
 		}
 
 		if (
@@ -356,13 +357,7 @@ export function evaluateField(
 			appliesRule(field.control, 'integer') &&
 			!INTEGER_PATTERN.test(value)
 		) {
-			errors.push(
-				Object.freeze({
-					field: field.name,
-					message: formatMessage('integer', undefined, messages),
-					rule: 'integer',
-				}),
-			)
+			errors.push(createFieldError(field, 'integer', undefined, messages))
 		}
 	}
 
@@ -373,13 +368,7 @@ export function evaluateField(
 		appliesRule(field.control, 'integer') &&
 		!isInteger(value)
 	) {
-		errors.push(
-			Object.freeze({
-				field: field.name,
-				message: formatMessage('integer', undefined, messages),
-				rule: 'integer',
-			}),
-		)
+		errors.push(createFieldError(field, 'integer', undefined, messages))
 	}
 
 	if (rule.custom !== undefined) {
@@ -432,12 +421,7 @@ export function computeDefaults(schema: FormSchema): FormValues {
 		switch (field.control) {
 			case 'checkbox':
 				if (field.default !== undefined) {
-					Object.defineProperty(defaults, field.name, {
-						value: cloneValue(field.default),
-						enumerable: true,
-						configurable: true,
-						writable: true,
-					})
+					defineEntry(defaults, field.name, cloneValue(field.default))
 				}
 				break
 			case 'password':
@@ -453,12 +437,7 @@ export function computeDefaults(schema: FormSchema): FormValues {
 			case 'confirm':
 			case 'select':
 				if (field.default !== undefined) {
-					Object.defineProperty(defaults, field.name, {
-						value: field.default,
-						enumerable: true,
-						configurable: true,
-						writable: true,
-					})
+					defineEntry(defaults, field.name, field.default)
 				}
 				break
 		}
@@ -546,6 +525,35 @@ export function formatMessage(
 ): string {
 	const message = messages?.[rule] ?? RULE_MESSAGES[rule]
 	return limit === undefined ? message : message.replaceAll('{limit}', String(limit))
+}
+
+/**
+ * Creates one named-rule failure against a field.
+ *
+ * @param field - The field the rule failed on.
+ * @param rule - The named rule that failed.
+ * @param limit - The rule's operand, substituted for `{limit}`, or absence when it carries none.
+ * @param messages - Optional rule-specific message replacements.
+ * @returns A frozen {@link FieldError} carrying the field's name, the resolved text, and the rule.
+ *
+ * @remarks
+ * A `custom` validator and the form's `invalidate` method both report a message of their own
+ * under no rule name, so neither builds its failure here.
+ *
+ * @example
+ * ```ts
+ * const field: FormField = { control: 'text', name: 'nickname', rule: { minimum: 3 } }
+ * const error = createFieldError(field, 'minimum', 3)
+ * error.message // 'Must be at least 3'
+ * ```
+ */
+export function createFieldError(
+	field: FormField,
+	rule: FieldRuleName,
+	limit: number | string | undefined,
+	messages?: Readonly<Partial<Record<FieldRuleName, string>>>,
+): FieldError {
+	return Object.freeze({ field: field.name, message: formatMessage(rule, limit, messages), rule })
 }
 
 /**

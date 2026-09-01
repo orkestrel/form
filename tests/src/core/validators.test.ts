@@ -12,6 +12,7 @@ import {
 	isFormStatus,
 	isFormValues,
 	matchesField,
+	RULE_MESSAGES,
 } from '@src/core'
 import { parseForm } from '@src/core'
 import { createHostileValues } from '@orkestrel/test'
@@ -34,6 +35,16 @@ describe('structural guards', () => {
 		expect(isFormGroup({ name: 'account', label: 'Account' })).toBe(true)
 		expect(isFormValues({ name: 'Ada', active: true, choices: ['one'] })).toBe(true)
 		expect(isFieldError({ field: 'name', message: 'Required', rule: 'required' })).toBe(true)
+	})
+
+	it('accepts every rule RULE_MESSAGES names and nothing else', () => {
+		for (const rule of Object.keys(RULE_MESSAGES)) {
+			expect(isFieldError({ field: 'name', message: 'Failed', rule })).toBe(true)
+		}
+
+		expect(isFieldError({ field: 'name', message: 'Failed', rule: 'custom' })).toBe(false)
+		expect(isFieldError({ field: 'name', message: 'Failed', rule: 'toString' })).toBe(false)
+		expect(isFieldError({ field: 'name', message: 'Failed', rule: 0 })).toBe(false)
 	})
 
 	it('checks every field control own members', () => {

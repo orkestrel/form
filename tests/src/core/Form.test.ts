@@ -8,7 +8,7 @@ import type {
 	FormValues,
 	TextField,
 } from '@src/core'
-import { Form, isFormError, isFormSchema } from '@src/core'
+import { Form, STRING_LIMIT, isFormError, isFormSchema } from '@src/core'
 import { attempt } from '@orkestrel/contract'
 import { createRecorder, waitForDelay } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
@@ -87,6 +87,33 @@ describe('Form construction', () => {
 		expect(isFormError(thrown) ? thrown.context?.problems : undefined).toStrictEqual([
 			'The schema is not a form schema',
 		])
+	})
+
+	it('audits the copy it stores, not the object the caller can answer twice', () => {
+		// `meta` is foreign data, and a record that answers each read differently makes the read
+		// count observable: the value the audit checks must be the value the form keeps.
+		const oversize = 'x'.repeat(STRING_LIMIT + 1)
+		let reads = 0
+		const meta = new Proxy(
+			{ note: 'seed' },
+			{
+				getOwnPropertyDescriptor(target, key) {
+					if (key !== 'note') return Reflect.getOwnPropertyDescriptor(target, key)
+					reads += 1
+					return {
+						value: reads === 1 ? 'small' : oversize,
+						enumerable: true,
+						configurable: true,
+						writable: true,
+					}
+				},
+			},
+		)
+
+		const form = new Form({ fields: [{ control: 'text', name: 'note', meta }] })
+
+		expect(reads).toBe(1)
+		expect(form.schema.fields[0]?.meta?.note).toBe('small')
 	})
 
 	it('refuses a seeded value naming a field the schema does not declare', () => {

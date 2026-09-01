@@ -9,7 +9,7 @@ import {
 } from '@orkestrel/contract'
 import { cloneValue } from './cloners.js'
 import { STRING_LIMIT } from './constants.js'
-import { auditSchema, matchesField, serializeForm } from './helpers.js'
+import { auditSchema, defineEntry, freezeEntry, matchesField, serializeForm } from './helpers.js'
 import { isFormSchema } from './validators.js'
 
 /**
@@ -25,12 +25,7 @@ export function parseForm(input: unknown): FormSchema | undefined {
 		const schema: Record<string, unknown> = {}
 		for (const key of Reflect.ownKeys(input)) {
 			if (!isString(key)) return undefined
-			Object.defineProperty(schema, key, {
-				value: input[key],
-				enumerable: true,
-				configurable: true,
-				writable: true,
-			})
+			defineEntry(schema, key, input[key])
 		}
 
 		const fields = schema.fields
@@ -50,12 +45,7 @@ export function parseForm(input: unknown): FormSchema | undefined {
 			const copy: Record<string, unknown> = {}
 			for (const key of Reflect.ownKeys(field)) {
 				if (!isString(key)) return undefined
-				Object.defineProperty(copy, key, {
-					value: field[key],
-					enumerable: true,
-					configurable: true,
-					writable: true,
-				})
+				defineEntry(copy, key, field[key])
 			}
 
 			const rule = copy.rule
@@ -64,12 +54,7 @@ export function parseForm(input: unknown): FormSchema | undefined {
 				for (const key of Reflect.ownKeys(rule)) {
 					if (!isString(key)) return undefined
 					if (key !== 'custom') {
-						Object.defineProperty(projected, key, {
-							value: rule[key],
-							enumerable: true,
-							configurable: true,
-							writable: true,
-						})
+						defineEntry(projected, key, rule[key])
 					}
 				}
 				copy.rule = projected
@@ -134,12 +119,7 @@ export function parseValues(schema: FormSchema, input: unknown): FormValues | un
 			const value = parseValue(field, input[key])
 			if (value === undefined) return undefined
 
-			Object.defineProperty(values, key, {
-				value,
-				enumerable: true,
-				configurable: false,
-				writable: false,
-			})
+			freezeEntry(values, key, value)
 		}
 
 		return Object.freeze(values)

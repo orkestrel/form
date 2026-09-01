@@ -16,6 +16,39 @@ export const FIELD_CONTROLS: readonly FieldControl[] = Object.freeze([
 	'file',
 ])
 
+/** The members every field declares, whatever its control. */
+export const FIELD_BASE_KEYS: readonly string[] = Object.freeze([
+	'control',
+	'name',
+	'label',
+	'help',
+	'group',
+	'hidden',
+	'disabled',
+	'locked',
+	'rule',
+	'meta',
+])
+
+/**
+ * Every member one field control permits, composed from {@link FIELD_BASE_KEYS} and the members
+ * the control's own interface adds.
+ */
+export const FIELD_KEYS: Readonly<Record<FieldControl, readonly string[]>> = Object.freeze({
+	text: Object.freeze([...FIELD_BASE_KEYS, 'default', 'placeholder']),
+	editor: Object.freeze([...FIELD_BASE_KEYS, 'default', 'placeholder']),
+	password: Object.freeze([...FIELD_BASE_KEYS, 'mask']),
+	number: Object.freeze([...FIELD_BASE_KEYS, 'default', 'placeholder']),
+	date: Object.freeze([...FIELD_BASE_KEYS, 'default']),
+	time: Object.freeze([...FIELD_BASE_KEYS, 'default']),
+	datetime: Object.freeze([...FIELD_BASE_KEYS, 'default']),
+	color: Object.freeze([...FIELD_BASE_KEYS, 'default']),
+	confirm: Object.freeze([...FIELD_BASE_KEYS, 'default']),
+	select: Object.freeze([...FIELD_BASE_KEYS, 'choices', 'default', 'open']),
+	checkbox: Object.freeze([...FIELD_BASE_KEYS, 'choices', 'default']),
+	file: Object.freeze([...FIELD_BASE_KEYS, 'accept', 'multiple']),
+})
+
 /** Every form lifecycle status. */
 export const FORM_STATUSES: readonly FormStatus[] = Object.freeze([
 	'editing',

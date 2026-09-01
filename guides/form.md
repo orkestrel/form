@@ -107,32 +107,34 @@ submit).
 
 ### Constants
 
-The control and status registries, the default rule copy, and the shipped patterns — every one of
-them frozen, so a shared `RegExp` cannot be recompiled under a consumer. The nine budgets are
-numbers.
+The control and status registries, the permitted-member table each control is checked against, the
+default rule copy, and the shipped patterns — every one of them frozen, so a shared `RegExp` cannot
+be recompiled under a consumer. The nine budgets are numbers.
 
-| API                    | Kind  | Summary                                                                                       |
-| ---------------------- | ----- | --------------------------------------------------------------------------------------------- |
-| `FIELD_CONTROLS`       | const | Every field control, in the order the public contract declares them.                          |
-| `FORM_STATUSES`        | const | Every form lifecycle status — `editing`, `settled`, `abandoned`.                              |
-| `RULE_MESSAGES`        | const | The default failure copy for every named rule; `{limit}` is replaced with the rule's operand. |
-| `EMAIL_PATTERN`        | const | A practical whole-address email shape — the `email` rule's test.                              |
-| `URL_PATTERN`          | const | An absolute HTTP or HTTPS URL shape — the `url` rule's test.                                  |
-| `ALPHANUMERIC_PATTERN` | const | One or more ASCII letters or digits — the `alphanumeric` rule's test.                         |
-| `INTEGER_PATTERN`      | const | A signed or unsigned base-ten integer string — the `integer` rule's test on a text control.   |
-| `COLOR_PATTERN`        | const | A six-digit hexadecimal color string — the shape a `color` value must have.                   |
-| `DATE_PATTERN`         | const | An ISO calendar date in `YYYY-MM-DD` form — the shape a `date` value must have.               |
-| `TIME_PATTERN`         | const | A 24-hour time with optional seconds — the shape a `time` value must have.                    |
-| `DATETIME_PATTERN`     | const | An ISO local date and time with optional seconds — the shape a `datetime` value must have.    |
-| `PATTERN_LIMIT`        | const | The longest authored regular-expression source this package will compile: 256 characters.     |
-| `FIELD_LIMIT`          | const | The most fields one schema may declare: 512.                                                  |
-| `GROUP_LIMIT`          | const | The most groups one schema may declare: 64.                                                   |
-| `CHOICE_LIMIT`         | const | The most choices one `select` or `checkbox` may offer: 1024.                                  |
-| `LIST_LIMIT`           | const | The most entries one list-valued answer may hold: 1024.                                       |
-| `NAME_LIMIT`           | const | The longest schema, group, or field name: 128 UTF-16 code units.                              |
-| `STRING_LIMIT`         | const | The longest single retained string: 65536 UTF-16 code units.                                  |
-| `TEXT_LIMIT`           | const | The most string code units one schema may retain in total: 1048576.                           |
-| `NODE_LIMIT`           | const | The most records, arrays, and leaves one schema may retain in total: 16384.                   |
+| API                    | Kind  | Summary                                                                                         |
+| ---------------------- | ----- | ----------------------------------------------------------------------------------------------- |
+| `FIELD_CONTROLS`       | const | Every field control, in the order the public contract declares them.                            |
+| `FIELD_BASE_KEYS`      | const | The members every field declares, whatever its control.                                         |
+| `FIELD_KEYS`           | const | Every member one control permits — the base members plus its own — as `isFormField` reads them. |
+| `FORM_STATUSES`        | const | Every form lifecycle status — `editing`, `settled`, `abandoned`.                                |
+| `RULE_MESSAGES`        | const | The default failure copy for every named rule; `{limit}` is replaced with the rule's operand.   |
+| `EMAIL_PATTERN`        | const | A practical whole-address email shape — the `email` rule's test.                                |
+| `URL_PATTERN`          | const | An absolute HTTP or HTTPS URL shape — the `url` rule's test.                                    |
+| `ALPHANUMERIC_PATTERN` | const | One or more ASCII letters or digits — the `alphanumeric` rule's test.                           |
+| `INTEGER_PATTERN`      | const | A signed or unsigned base-ten integer string — the `integer` rule's test on a text control.     |
+| `COLOR_PATTERN`        | const | A six-digit hexadecimal color string — the shape a `color` value must have.                     |
+| `DATE_PATTERN`         | const | An ISO calendar date in `YYYY-MM-DD` form — the shape a `date` value must have.                 |
+| `TIME_PATTERN`         | const | A 24-hour time with optional seconds — the shape a `time` value must have.                      |
+| `DATETIME_PATTERN`     | const | An ISO local date and time with optional seconds — the shape a `datetime` value must have.      |
+| `PATTERN_LIMIT`        | const | The longest authored regular-expression source this package will compile: 256 characters.       |
+| `FIELD_LIMIT`          | const | The most fields one schema may declare: 512.                                                    |
+| `GROUP_LIMIT`          | const | The most groups one schema may declare: 64.                                                     |
+| `CHOICE_LIMIT`         | const | The most choices one `select` or `checkbox` may offer: 1024.                                    |
+| `LIST_LIMIT`           | const | The most entries one list-valued answer may hold: 1024.                                         |
+| `NAME_LIMIT`           | const | The longest schema, group, or field name: 128 UTF-16 code units.                                |
+| `STRING_LIMIT`         | const | The longest single retained string: 65536 UTF-16 code units.                                    |
+| `TEXT_LIMIT`           | const | The most string code units one schema may retain in total: 1048576.                             |
+| `NODE_LIMIT`           | const | The most records, arrays, and leaves one schema may retain in total: 16384.                     |
 
 ### Guards
 
@@ -154,24 +156,27 @@ anything off-shape — including a hostile prototype, a symbol key, or a cyclic 
 
 ### Helpers
 
-The pure leaves the form composes: the control shape test, the evaluation engine, the derivations,
-and the wire projection.
+The pure leaves the form composes: the prototype-safe record write, the control shape test, the
+evaluation engine, the derivations, and the wire projection.
 
-| API               | Kind     | Summary                                                                                                  |
-| ----------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| `matchesField`    | function | Whether one control can hold a value — the shape gate every write and every seed passes through.         |
-| `matchesAnswer`   | function | Whether a raw binding value counts as an answer — the documented projection a binding fills through.     |
-| `appliesRule`     | function | Whether one named rule applies to one field control.                                                     |
-| `evaluateField`   | function | Every failure one field's rule produces against its current value, in rule order.                        |
-| `evaluateForm`    | function | Every failure the whole schema produces, in schema order then rule order; a disabled field is skipped.   |
-| `computeDefaults` | function | The values a schema explicitly seeds. `password` and `file` declare no default, so neither ever appears. |
-| `matchesValue`    | function | Whether two field values hold the same answer, comparing list values element by element.                 |
-| `extractChanges`  | function | The names whose answers differ between two value records, absence included.                              |
-| `matchesValues`   | function | Whether two answer records hold the same answers, comparing list values element by element.              |
-| `formatMessage`   | function | Resolve one rule's failure text — an override first, then `RULE_MESSAGES` — and substitute `{limit}`.    |
-| `serializeForm`   | function | Project a schema into JSON, dropping every `custom` validator and every absent member.                   |
-| `extractGroups`   | function | The groups a schema's fields actually reference, in first-reference order and without duplicates.        |
-| `auditSchema`     | function | Audit a structurally valid schema for domain invariants, returning human-readable diagnostics.           |
+| API                | Kind     | Summary                                                                                                  |
+| ------------------ | -------- | -------------------------------------------------------------------------------------------------------- |
+| `defineEntry`      | function | Write one own enumerable entry, so a `__proto__` key lands on the record rather than its prototype.      |
+| `freezeEntry`      | function | The same prototype-safe write, sealed — the entry is neither writable nor configurable.                  |
+| `createFieldError` | function | Build one frozen named-rule failure: the field's name, the resolved message, and the rule.               |
+| `matchesField`     | function | Whether one control can hold a value — the shape gate every write and every seed passes through.         |
+| `matchesAnswer`    | function | Whether a raw binding value counts as an answer — the documented projection a binding fills through.     |
+| `appliesRule`      | function | Whether one named rule applies to one field control.                                                     |
+| `evaluateField`    | function | Every failure one field's rule produces against its current value, in rule order.                        |
+| `evaluateForm`     | function | Every failure the whole schema produces, in schema order then rule order; a disabled field is skipped.   |
+| `computeDefaults`  | function | The values a schema explicitly seeds. `password` and `file` declare no default, so neither ever appears. |
+| `matchesValue`     | function | Whether two field values hold the same answer, comparing list values element by element.                 |
+| `extractChanges`   | function | The names whose answers differ between two value records, absence included.                              |
+| `matchesValues`    | function | Whether two answer records hold the same answers, comparing list values element by element.              |
+| `formatMessage`    | function | Resolve one rule's failure text — an override first, then `RULE_MESSAGES` — and substitute `{limit}`.    |
+| `serializeForm`    | function | Project a schema into JSON, dropping every `custom` validator and every absent member.                   |
+| `extractGroups`    | function | The groups a schema's fields actually reference, in first-reference order and without duplicates.        |
+| `auditSchema`      | function | Audit a structurally valid schema for domain invariants, returning human-readable diagnostics.           |
 
 ### Cloners
 
@@ -1393,8 +1398,10 @@ isFieldError({ field: 'a', message: 'b', rule: 'required' }) // true
 
 ### Owning what arrives
 
-The cloners are how a value stops being the caller's. The form clones the schema at construction, so
-a later edit to the caller's object changes nothing inside the form; it clones each list value it
+The cloners are how a value stops being the caller's. The form clones the schema at construction —
+before the structural guard and the audit run, and they run against that copy — so a caller's object
+that answers each read differently cannot pass a check on one value and be stored as another; a
+later edit to the caller's object changes nothing inside the form either; it clones each list value it
 stores and each it returns, so no caller ever holds a reference to internal state. They are exported
 because a consumer building its own schema store needs the same guarantee.
 
@@ -1536,9 +1543,11 @@ These invariants hold across [`src/core`](../src/core) and this guide.
 2. **Documented methods equal interface methods.** The `## Methods` table for `FormInterface` lists
    exactly its call-signature members, and the `Form` class implements every one and adds no public
    behavior beyond them.
-3. **The schema is owned.** `Form` clones the schema at construction and freezes every nested group,
-   field, rule, choice, and list. A later edit to the caller's object changes nothing inside the
-   form, and no getter returns a live internal reference.
+3. **The schema is owned before it is read.** `Form` clones the schema at construction and freezes
+   every nested group, field, rule, choice, and list. The clone is the only read of the caller's
+   object: `isFormSchema` and `auditSchema` both run against the owned copy, and that same copy is
+   what the form keeps. A later edit to the caller's object changes nothing inside the form, and no
+   getter returns a live internal reference.
 4. **Errors are current after completed evaluation.** `errors` is recomputed at construction and
    after every mutation whose evaluation completes, and `validate` fires exactly when that list's
    content changes. A custom-validator throw escapes mid-evaluation. After a throwing `fill`, the
@@ -1655,8 +1664,9 @@ next change knows what it is reopening. `Layer` names who owns the concept, and 
   paths through the entity.
 - [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) — `matchesField`,
   `matchesAnswer`, `appliesRule`, `evaluateField`, `evaluateForm`, `computeDefaults`,
-  `matchesValue`, `extractChanges`, `matchesValues`, `formatMessage`, `serializeForm`,
-  `extractGroups`, `auditSchema`, the budgets, and the control-by-rule matrix.
+  `matchesValue`, `extractChanges`, `matchesValues`, `formatMessage`, `createFieldError`,
+  `defineEntry`, `freezeEntry`, `serializeForm`, `extractGroups`, `auditSchema`, the budgets, and
+  the control-by-rule matrix.
 - [`tests/src/core/validators.test.ts`](../tests/src/core/validators.test.ts) — every guard against
   valid, off-shape, and hostile input, plus guard/parser soundness in both directions.
 - [`tests/src/core/parsers.test.ts`](../tests/src/core/parsers.test.ts) — `parseValue`,
@@ -1664,7 +1674,7 @@ next change knows what it is reopening. `Layer` names who owns the concept, and 
 - [`tests/src/core/cloners.test.ts`](../tests/src/core/cloners.test.ts) — every clone is owned,
   frozen, and deep enough that no caller reference survives.
 - [`tests/src/core/constants.test.ts`](../tests/src/core/constants.test.ts) — the registries, the
-  default messages, and each shipped pattern.
+  permitted-member table, the default messages, and each shipped pattern.
 - [`tests/src/core/errors.test.ts`](../tests/src/core/errors.test.ts) — `FormError`'s `code` and
   `context`, and `isFormError` narrowing.
 - [`tests/src/core/factories.test.ts`](../tests/src/core/factories.test.ts) — `createForm` returns a

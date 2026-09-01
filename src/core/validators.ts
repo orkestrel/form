@@ -19,11 +19,11 @@ import {
 	isFunction,
 	isRecord,
 	isString,
-	literalOf,
+	keyOf,
 	recordOf,
 	unionOf,
 } from '@orkestrel/contract'
-import { FIELD_CONTROLS, FORM_STATUSES } from './constants.js'
+import { FIELD_CONTROLS, FIELD_KEYS, FORM_STATUSES, RULE_MESSAGES } from './constants.js'
 
 /**
  * Determine whether an unknown value is a declared field control.
@@ -122,122 +122,8 @@ export function isFormField(input: unknown): input is FormField {
 		const control = input.control
 		if (!isFieldControl(control)) return false
 
-		const keys = Reflect.ownKeys(input)
-		const exact = keys.every((key) => {
-			if (!isString(key)) return false
-
-			switch (control) {
-				case 'text':
-				case 'editor':
-					return [
-						'control',
-						'name',
-						'label',
-						'help',
-						'group',
-						'hidden',
-						'disabled',
-						'locked',
-						'rule',
-						'meta',
-						'default',
-						'placeholder',
-					].includes(key)
-				case 'password':
-					return [
-						'control',
-						'name',
-						'label',
-						'help',
-						'group',
-						'hidden',
-						'disabled',
-						'locked',
-						'rule',
-						'meta',
-						'mask',
-					].includes(key)
-				case 'number':
-					return [
-						'control',
-						'name',
-						'label',
-						'help',
-						'group',
-						'hidden',
-						'disabled',
-						'locked',
-						'rule',
-						'meta',
-						'default',
-						'placeholder',
-					].includes(key)
-				case 'date':
-				case 'time':
-				case 'datetime':
-				case 'color':
-				case 'confirm':
-					return [
-						'control',
-						'name',
-						'label',
-						'help',
-						'group',
-						'hidden',
-						'disabled',
-						'locked',
-						'rule',
-						'meta',
-						'default',
-					].includes(key)
-				case 'select':
-					return [
-						'control',
-						'name',
-						'label',
-						'help',
-						'group',
-						'hidden',
-						'disabled',
-						'locked',
-						'rule',
-						'meta',
-						'choices',
-						'default',
-						'open',
-					].includes(key)
-				case 'checkbox':
-					return [
-						'control',
-						'name',
-						'label',
-						'help',
-						'group',
-						'hidden',
-						'disabled',
-						'locked',
-						'rule',
-						'meta',
-						'choices',
-						'default',
-					].includes(key)
-				case 'file':
-					return [
-						'control',
-						'name',
-						'label',
-						'help',
-						'group',
-						'hidden',
-						'disabled',
-						'locked',
-						'rule',
-						'meta',
-						'accept',
-						'multiple',
-					].includes(key)
-			}
-		})
+		const permitted = FIELD_KEYS[control]
+		const exact = Reflect.ownKeys(input).every((key) => isString(key) && permitted.includes(key))
 
 		if (!exact) return false
 
@@ -414,17 +300,7 @@ export function isFieldError(input: unknown): input is FieldError {
 		{
 			field: isString,
 			message: isString,
-			rule: literalOf(
-				'required',
-				'minimum',
-				'maximum',
-				'step',
-				'pattern',
-				'email',
-				'url',
-				'integer',
-				'alphanumeric',
-			),
+			rule: keyOf(RULE_MESSAGES),
 		},
 		['rule'],
 	)(input)

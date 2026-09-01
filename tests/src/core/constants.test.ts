@@ -5,7 +5,9 @@ import {
 	DATE_PATTERN,
 	DATETIME_PATTERN,
 	EMAIL_PATTERN,
+	FIELD_BASE_KEYS,
 	FIELD_CONTROLS,
+	FIELD_KEYS,
 	FIELD_LIMIT,
 	FORM_STATUSES,
 	GROUP_LIMIT,
@@ -41,6 +43,27 @@ describe('core constants', () => {
 		expect(FORM_STATUSES).toStrictEqual(['editing', 'settled', 'abandoned'])
 		expect(Object.isFrozen(FIELD_CONTROLS)).toBe(true)
 		expect(Object.isFrozen(FORM_STATUSES)).toBe(true)
+	})
+
+	it('keys every control from the base members plus its own', () => {
+		expect(Object.keys(FIELD_KEYS).sort()).toStrictEqual([...FIELD_CONTROLS].sort())
+
+		for (const control of FIELD_CONTROLS) {
+			const permitted = FIELD_KEYS[control]
+			expect(permitted.slice(0, FIELD_BASE_KEYS.length)).toStrictEqual([...FIELD_BASE_KEYS])
+			expect(new Set(permitted).size).toBe(permitted.length)
+			expect(Object.isFrozen(permitted)).toBe(true)
+		}
+
+		expect(FIELD_KEYS.password.slice(FIELD_BASE_KEYS.length)).toStrictEqual(['mask'])
+		expect(FIELD_KEYS.select.slice(FIELD_BASE_KEYS.length)).toStrictEqual([
+			'choices',
+			'default',
+			'open',
+		])
+		expect(FIELD_KEYS.file.slice(FIELD_BASE_KEYS.length)).toStrictEqual(['accept', 'multiple'])
+		expect(Object.isFrozen(FIELD_BASE_KEYS)).toBe(true)
+		expect(Object.isFrozen(FIELD_KEYS)).toBe(true)
 	})
 
 	it('provides a frozen message for every named rule', () => {

@@ -21,11 +21,14 @@ import {
 	appliesRule,
 	auditSchema,
 	computeDefaults,
+	createFieldError,
+	defineEntry,
 	evaluateField,
 	evaluateForm,
 	extractChanges,
 	extractGroups,
 	formatMessage,
+	freezeEntry,
 	isFormError,
 	matchesAnswer,
 	matchesField,
@@ -137,6 +140,93 @@ function createMatrixCase(
 			return [{ alphanumeric: true }, 'Ada42', 'Ada 42']
 	}
 }
+
+describe('createFieldError', () => {
+	const field: FormField = { control: 'text', name: 'nickname' }
+
+	it('resolves the default copy and substitutes the operand', () => {
+		expect(createFieldError(field, 'minimum', 3)).toStrictEqual({
+			field: 'nickname',
+			message: 'Must be at least 3',
+			rule: 'minimum',
+		})
+		expect(createFieldError(field, 'required', undefined)).toStrictEqual({
+			field: 'nickname',
+			message: 'This field is required',
+			rule: 'required',
+		})
+	})
+
+	it('prefers an override message over the default copy', () => {
+		expect(
+			createFieldError(field, 'maximum', 8, { maximum: 'At most {limit} please' }),
+		).toStrictEqual({ field: 'nickname', message: 'At most 8 please', rule: 'maximum' })
+		expect(createFieldError(field, 'maximum', 8, { minimum: 'Unread' }).message).toBe(
+			'Must be at most 8',
+		)
+	})
+
+	it('returns a frozen error', () => {
+		expect(Object.isFrozen(createFieldError(field, 'email', undefined))).toBe(true)
+	})
+})
+
+describe('defineEntry', () => {
+	it('writes a __proto__ key that plain assignment cannot create', () => {
+		const hostile = '__proto__'
+
+		const assigned: Record<string, number> = {}
+		assigned[hostile] = 1
+		expect(Object.hasOwn(assigned, hostile)).toBe(false)
+
+		const defined: Record<string, number> = {}
+		defineEntry(defined, hostile, 1)
+		expect(Object.hasOwn(defined, hostile)).toBe(true)
+		expect(Object.getPrototypeOf(defined)).toBe(Object.prototype)
+		expect(Object.entries(defined)).toEqual([[hostile, 1]])
+	})
+
+	it('leaves the entry enumerable, writable, and configurable', () => {
+		const target: Record<string, number> = {}
+		defineEntry(target, 'count', 1)
+		defineEntry(target, 'count', 2)
+
+		expect(target.count).toBe(2)
+		expect(Object.getOwnPropertyDescriptor(target, 'count')).toEqual({
+			value: 2,
+			enumerable: true,
+			configurable: true,
+			writable: true,
+		})
+	})
+})
+
+describe('freezeEntry', () => {
+	it('writes a __proto__ key that plain assignment cannot create', () => {
+		const hostile = '__proto__'
+
+		const target: Record<string, number> = {}
+		freezeEntry(target, hostile, 1)
+
+		expect(Object.hasOwn(target, hostile)).toBe(true)
+		expect(Object.getPrototypeOf(target)).toBe(Object.prototype)
+		expect(Object.entries(target)).toEqual([[hostile, 1]])
+	})
+
+	it('seals the entry against a second write', () => {
+		const target: Record<string, number> = {}
+		freezeEntry(target, 'count', 1)
+
+		expect(Object.getOwnPropertyDescriptor(target, 'count')).toEqual({
+			value: 1,
+			enumerable: true,
+			configurable: false,
+			writable: false,
+		})
+		expect(attempt(() => freezeEntry(target, 'count', 2)).success).toBe(false)
+		expect(target.count).toBe(1)
+	})
+})
 
 describe('matchesField', () => {
 	it('accepts each control own value shape', () => {

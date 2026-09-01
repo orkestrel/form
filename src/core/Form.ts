@@ -12,13 +12,14 @@ import type {
 	FormStatus,
 	FormValues,
 } from './types.js'
-import { isString } from '@orkestrel/contract'
+import { attempt, isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
 import { cloneFormSchema, cloneValue } from './cloners.js'
-import { FormError } from './errors.js'
+import { FormError, isFormError } from './errors.js'
 import {
 	auditSchema,
 	computeDefaults,
+	defineEntry,
 	evaluateForm,
 	matchesField,
 	matchesValue,
@@ -77,29 +78,29 @@ export class Form implements FormInterface {
 	 *   value is one its field's control cannot hold.
 	 */
 	constructor(schema: FormSchema, options?: FormOptions) {
-		const problems = isFormSchema(schema)
-			? auditSchema(schema)
-			: ['The schema is not a form schema']
+		// Own the schema before reading it, so the guard, the audit, and every later read see one
+		// copy this form holds rather than an object the caller can still answer differently on
+		// each read. `parseForm` takes the same clone-then-guard order at the wire boundary.
+		const owned = attempt(() => cloneFormSchema(schema))
+		if (!owned.success && isFormError(owned.error)) throw owned.error
 
-		if (problems.length > 0) {
+		const copy = owned.success && isFormSchema(owned.value) ? owned.value : undefined
+		const problems = copy === undefined ? ['The schema is not a form schema'] : auditSchema(copy)
+
+		if (copy === undefined || problems.length > 0) {
 			throw new FormError('SCHEMA', `The form schema is unusable: ${problems.join('; ')}`, {
 				problems: [...problems],
 			})
 		}
 
-		this.#schema = cloneFormSchema(schema)
+		this.#schema = copy
 		this.#messages =
 			options?.messages === undefined ? undefined : Object.freeze({ ...options.messages })
 
 		const baseline: Record<string, FieldValue> = {}
 
 		for (const [name, value] of Object.entries(computeDefaults(this.#schema))) {
-			Object.defineProperty(baseline, name, {
-				value,
-				enumerable: true,
-				configurable: true,
-				writable: true,
-			})
+			defineEntry(baseline, name, value)
 		}
 
 		for (const [name, value] of Object.entries(options?.values ?? {})) {
@@ -113,23 +114,13 @@ export class Form implements FormInterface {
 				)
 			}
 
-			Object.defineProperty(baseline, name, {
-				value: cloneValue(value),
-				enumerable: true,
-				configurable: true,
-				writable: true,
-			})
+			defineEntry(baseline, name, cloneValue(value))
 		}
 
 		this.#baseline = Object.freeze(baseline)
 		this.#values = {}
 		for (const [name, value] of Object.entries(baseline)) {
-			Object.defineProperty(this.#values, name, {
-				value,
-				enumerable: true,
-				configurable: true,
-				writable: true,
-			})
+			defineEntry(this.#values, name, value)
 		}
 		// Nobody has to await `answer`. Without a rejection handler of its own, destroying an
 		// unawaited form would reject a promise no one is watching and take the host down with it.
@@ -155,14 +146,10 @@ export class Form implements FormInterface {
 	get values(): FormValues {
 		const values: Record<string, FieldValue> = {}
 
-		// Object.keys supplies the own enumerable answer population used here and by clear().
-		for (const name of Object.keys(this.#values)) {
-			Object.defineProperty(values, name, {
-				value: this.#values[name],
-				enumerable: true,
-				configurable: true,
-				writable: true,
-			})
+		// Object.entries reads the own enumerable answer population; clear() walks the same one
+		// through Object.keys.
+		for (const [name, value] of Object.entries(this.#values)) {
+			defineEntry(values, name, value)
 		}
 
 		return Object.freeze(values)
@@ -280,12 +267,7 @@ export class Form implements FormInterface {
 				if (this.#differs(name, answer)) moved.push(name)
 				if (answer === undefined) delete this.#values[name]
 				else {
-					Object.defineProperty(this.#values, name, {
-						value: cloneValue(answer),
-						enumerable: true,
-						configurable: true,
-						writable: true,
-					})
+					defineEntry(this.#values, name, cloneValue(answer))
 				}
 				this.#invalidations.delete(name)
 			}
@@ -454,12 +436,7 @@ export class Form implements FormInterface {
 		this.#batch(() => {
 			for (const name of Object.keys(this.#values)) delete this.#values[name]
 			for (const [name, value] of Object.entries(this.#baseline)) {
-				Object.defineProperty(this.#values, name, {
-					value,
-					enumerable: true,
-					configurable: true,
-					writable: true,
-				})
+				defineEntry(this.#values, name, value)
 			}
 
 			this.#touched.clear()
@@ -596,12 +573,7 @@ export class Form implements FormInterface {
 		for (const field of this.#schema.fields) {
 			const value = Object.hasOwn(this.#values, field.name) ? this.#values[field.name] : undefined
 			if (!disabled.has(field.name) && value !== undefined) {
-				Object.defineProperty(answers, field.name, {
-					value,
-					enumerable: true,
-					configurable: true,
-					writable: true,
-				})
+				defineEntry(answers, field.name, value)
 			}
 		}
 
