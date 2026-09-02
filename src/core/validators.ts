@@ -26,40 +26,40 @@ import {
 import { FIELD_CONTROLS, FIELD_KEYS, FORM_STATUSES, RULE_MESSAGES } from './constants.js'
 
 /**
- * Determine whether an unknown value is a declared field control.
+ * Determines whether an unknown value is a declared field control.
  *
  * @param input - The value to inspect.
- * @returns Whether the value is a field control.
+ * @returns True if the value is a field control; false otherwise.
  */
 export function isFieldControl(input: unknown): input is FieldControl {
 	return FIELD_CONTROLS.some((control) => control === input)
 }
 
 /**
- * Determine whether an unknown value is a form lifecycle status.
+ * Determines whether an unknown value is a form lifecycle status.
  *
  * @param input - The value to inspect.
- * @returns Whether the value is a form status.
+ * @returns True if the value is a form status; false otherwise.
  */
 export function isFormStatus(input: unknown): input is FormStatus {
 	return FORM_STATUSES.some((status) => status === input)
 }
 
 /**
- * Determine whether an unknown value has a form field value shape.
+ * Determines whether an unknown value has a form field value shape.
  *
  * @param input - The value to inspect.
- * @returns Whether the value is a field value.
+ * @returns True if the value is a field value; false otherwise.
  */
 export function isFieldValue(input: unknown): input is FieldValue {
 	return unionOf(isString, isFiniteNumber, isBoolean, arrayOf(isString))(input)
 }
 
 /**
- * Determine whether an unknown value is one exact field choice record.
+ * Determines whether an unknown value is one exact field choice record.
  *
  * @param input - The value to inspect.
- * @returns Whether the value is a field choice.
+ * @returns True if the value is a field choice; false otherwise.
  */
 export function isFieldChoice(input: unknown): input is FieldChoice {
 	const keys = attempt(
@@ -74,10 +74,10 @@ export function isFieldChoice(input: unknown): input is FieldChoice {
 }
 
 /**
- * Determine whether an unknown value is one exact field rule record.
+ * Determines whether an unknown value is one exact field rule record.
  *
  * @param input - The value to inspect.
- * @returns Whether the value is a structurally valid field rule.
+ * @returns True if the value is a structurally valid field rule; false otherwise.
  */
 export function isFieldRule(input: unknown): input is FieldRule {
 	const keys = attempt(
@@ -103,7 +103,7 @@ export function isFieldRule(input: unknown): input is FieldRule {
 }
 
 /**
- * Determine whether an unknown value is one exact discriminated form field.
+ * Determines whether an unknown value is one exact discriminated form field.
  *
  * @remarks
  * Metadata is admitted structurally as bounded JSON. An accessor-bearing metadata record is
@@ -111,7 +111,7 @@ export function isFieldRule(input: unknown): input is FieldRule {
  * data properties only.
  *
  * @param input - The value to inspect.
- * @returns Whether the value is a structurally valid form field.
+ * @returns True if the value is a structurally valid form field; false otherwise.
  */
 export function isFormField(input: unknown): input is FormField {
 	const outcome = attempt(() => {
@@ -229,10 +229,10 @@ export function isFormField(input: unknown): input is FormField {
 }
 
 /**
- * Determine whether an unknown value is one exact form group record.
+ * Determines whether an unknown value is one exact form group record.
  *
  * @param input - The value to inspect.
- * @returns Whether the value is a form group.
+ * @returns True if the value is a form group; false otherwise.
  */
 export function isFormGroup(input: unknown): input is FormGroup {
 	const keys = attempt(
@@ -244,10 +244,10 @@ export function isFormGroup(input: unknown): input is FormGroup {
 }
 
 /**
- * Determine whether an unknown value is one exact structural form schema.
+ * Determines whether an unknown value is one exact structural form schema.
  *
  * @param input - The value to inspect.
- * @returns Whether the value is a structurally valid form schema.
+ * @returns True if the value is a structurally valid form schema; false otherwise.
  */
 export function isFormSchema(input: unknown): input is FormSchema {
 	const keys = attempt(
@@ -268,10 +268,10 @@ export function isFormSchema(input: unknown): input is FormSchema {
 }
 
 /**
- * Determine whether an unknown value is a record of field values.
+ * Determines whether an unknown value is a record of field values.
  *
  * @param input - The value to inspect.
- * @returns Whether the value is a form values record.
+ * @returns True if the value is a form values record; false otherwise.
  */
 export function isFormValues(input: unknown): input is FormValues {
 	const outcome = attempt(() => {
@@ -285,10 +285,10 @@ export function isFormValues(input: unknown): input is FormValues {
 }
 
 /**
- * Determine whether an unknown value is one exact field error record.
+ * Determines whether an unknown value is one exact field error record.
  *
  * @param input - The value to inspect.
- * @returns Whether the value is a field error.
+ * @returns True if the value is a field error; false otherwise.
  */
 export function isFieldError(input: unknown): input is FieldError {
 	const keys = attempt(

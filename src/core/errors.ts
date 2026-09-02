@@ -1,16 +1,16 @@
 import type { JSONRecord } from '@orkestrel/contract'
 import type { FormErrorCode } from './types.js'
 
-/** An error raised by the form domain. */
+/** Represents an error raised by the form domain. */
 export class FormError extends Error {
-	/** The machine-readable reason for this failure. */
+	/** Holds the machine-readable reason for this failure. */
 	readonly code: FormErrorCode
 
-	/** Structured values that locate or explain this failure. */
+	/** Holds structured values that locate or explain this failure. */
 	readonly context?: JSONRecord
 
 	/**
-	 * Create a form error.
+	 * Creates a form error.
 	 *
 	 * @param code - The machine-readable reason.
 	 * @param message - The human-readable failure text.
@@ -25,10 +25,10 @@ export class FormError extends Error {
 }
 
 /**
- * Determine whether an unknown value is a form error.
+ * Determines whether an unknown value is a form error.
  *
  * @param input - The value to inspect.
- * @returns Whether the value is a {@link FormError} instance.
+ * @returns True if the value is a {@link FormError} instance; false otherwise.
  */
 export function isFormError(input: unknown): input is FormError {
 	return input instanceof FormError

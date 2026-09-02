@@ -4,7 +4,7 @@ import { cloneJSONRecord, isArray, isContractError } from '@orkestrel/contract'
 import { FormError } from './errors.js'
 
 /**
- * Clone one form value into an owned frozen snapshot.
+ * Clones one form value into an owned frozen snapshot.
  *
  * @param value - The field value to own.
  * @returns The scalar unchanged, or a frozen copy of the list.
@@ -16,7 +16,7 @@ export function cloneValue(value: FieldValue): FieldValue {
 }
 
 /**
- * Clone a field's choices into an owned frozen snapshot.
+ * Clones a field's choices into an owned frozen snapshot.
  *
  * @param choices - The choices to own.
  * @returns A frozen list of frozen choice records.
@@ -26,7 +26,7 @@ export function cloneChoices(choices: readonly FieldChoice[]): readonly FieldCho
 }
 
 /**
- * Clone one form field into an owned frozen snapshot.
+ * Clones one form field into an owned frozen snapshot.
  *
  * @param field - The field to own.
  * @returns A frozen field with every nested collection owned.
@@ -80,7 +80,7 @@ export function cloneFormField(field: FormField): FormField {
 }
 
 /**
- * Clone a form schema into an owned frozen snapshot.
+ * Clones a form schema into an owned frozen snapshot.
  *
  * @param schema - The schema to own.
  * @returns A frozen schema with every nested record and list owned.

@@ -2,7 +2,7 @@ import type { FormInterface, FormOptions, FormSchema } from './types.js'
 import { Form } from './Form.js'
 
 /**
- * Open a form against a schema.
+ * Opens a form against a schema.
  *
  * @param schema - The form to ask. It is copied, and the copy is what the form asks.
  * @param options - The form's settings.

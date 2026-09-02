@@ -102,11 +102,11 @@ export function freezeEntry<T>(target: Record<string, T>, name: string, value: T
 }
 
 /**
- * Check whether a value has the shape required by one field control.
+ * Checks whether a value has the shape required by one field control.
  *
  * @param field - The field that owns the value.
  * @param value - The unknown value to inspect.
- * @returns Whether the control can hold the value.
+ * @returns True if the control can hold the value; false otherwise.
  */
 export function matchesField(field: FormField, value: unknown): value is FieldValue {
 	if (isString(value) && value.length > STRING_LIMIT) return false
@@ -163,7 +163,7 @@ export function matchesField(field: FormField, value: unknown): value is FieldVa
 }
 
 /**
- * Decide whether a raw binding value projects to an answered field.
+ * Decides whether a raw binding value projects to an answered field.
  *
  * @remarks
  * Bind with `fill(name, matchesAnswer(raw) ? raw : undefined)`. This projection treats an absent
@@ -172,14 +172,14 @@ export function matchesField(field: FormField, value: unknown): value is FieldVa
  * its `required` rule remains presence-only.
  *
  * @param value - The raw field value, or absence.
- * @returns Whether the binding should preserve the value as an answer.
+ * @returns True if the binding preserves the value as an answer; false otherwise.
  */
 export function matchesAnswer(value: FieldValue | undefined): boolean {
 	return value !== undefined && (!isString(value) || value.trim().length > 0)
 }
 
 /**
- * Check whether a named rule applies to one field control.
+ * Checks whether a named rule applies to one field control.
  *
  * @remarks
  * The runtime control-membership check keeps this boundary total for JavaScript callers that
@@ -187,7 +187,7 @@ export function matchesAnswer(value: FieldValue | undefined): boolean {
  *
  * @param control - The field control to inspect.
  * @param rule - The named rule to inspect.
- * @returns Whether the control evaluates that rule.
+ * @returns True if the control evaluates that rule; false otherwise.
  */
 export function appliesRule(control: FieldControl, rule: FieldRuleName): boolean {
 	if (!FIELD_CONTROLS.some((candidate) => candidate === control)) return false
@@ -218,7 +218,7 @@ export function appliesRule(control: FieldControl, rule: FieldRuleName): boolean
 }
 
 /**
- * Evaluate one field rule against its current value.
+ * Evaluates one field rule against its current value.
  *
  * @param field - The field and rule to evaluate.
  * @param value - The current value, or absence.
@@ -381,7 +381,7 @@ export function evaluateField(
 }
 
 /**
- * Evaluate every active field in schema order.
+ * Evaluates every active field in schema order.
  *
  * @param schema - The form schema to evaluate.
  * @param values - The values keyed by field name.
@@ -409,7 +409,7 @@ export function evaluateForm(
 }
 
 /**
- * Compute the values explicitly seeded by a schema.
+ * Computes the values explicitly seeded by a schema.
  *
  * @param schema - The schema whose defaults to collect.
  * @returns A value record containing only fields with defaults.
@@ -447,11 +447,11 @@ export function computeDefaults(schema: FormSchema): FormValues {
 }
 
 /**
- * Compare two field values by scalar identity or ordered list content.
+ * Compares two field values by scalar identity or ordered list content.
  *
  * @param a - The first field value.
  * @param b - The second field value.
- * @returns Whether both values contain the same answer.
+ * @returns True if both values contain the same answer; false otherwise.
  */
 export function matchesValue(a: FieldValue, b: FieldValue): boolean {
 	if (isArray(a) || isArray(b)) {
@@ -467,7 +467,7 @@ export function matchesValue(a: FieldValue, b: FieldValue): boolean {
 }
 
 /**
- * Extract the names whose answers differ between two form value records.
+ * Extracts the names whose answers differ between two form value records.
  *
  * @remarks
  * Presence is compared in both directions before present values are compared through
@@ -500,18 +500,18 @@ export function extractChanges(current: FormValues, opened: FormValues): Readonl
 }
 
 /**
- * Compare two form value records by keys and value content.
+ * Compares two form value records by keys and value content.
  *
  * @param a - The first value record.
  * @param b - The second value record.
- * @returns Whether both records contain the same answers.
+ * @returns True if both records contain the same answers; false otherwise.
  */
 export function matchesValues(a: FormValues, b: FormValues): boolean {
 	return extractChanges(a, b).size === 0
 }
 
 /**
- * Resolve and interpolate one rule message.
+ * Resolves and interpolates one rule message.
  *
  * @param rule - The rule whose message to resolve.
  * @param limit - The optional operand substituted for `{limit}`.
@@ -557,7 +557,7 @@ export function createFieldError(
 }
 
 /**
- * Project a schema into JSON while removing custom validators and absent values.
+ * Projects a schema into JSON while removing custom validators and absent values.
  *
  * @param schema - The schema to project.
  * @returns A deep JSON copy of the serializable schema.
@@ -672,7 +672,7 @@ export function serializeForm(schema: FormSchema): JSONRecord {
 }
 
 /**
- * Select referenced groups in first-reference field order.
+ * Selects referenced groups in first-reference field order.
  *
  * @param schema - The schema whose group references to resolve.
  * @returns The referenced schema groups without duplicates.
@@ -693,7 +693,7 @@ export function extractGroups(schema: FormSchema): readonly FormGroup[] {
 }
 
 /**
- * Audit a structurally valid schema for domain invariants.
+ * Audits a structurally valid schema for domain invariants.
  *
  * @param schema - The form schema to audit.
  * @returns Human-readable invariant violations, or an empty list when the schema is sound.

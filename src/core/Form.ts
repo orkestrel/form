@@ -28,7 +28,7 @@ import {
 import { isFormSchema } from './validators.js'
 
 /**
- * A form: a schema, the answers given against it, and the errors they carry.
+ * Represents a form: a schema, the answers given against it, and the errors they carry.
  *
  * @remarks
  * The form owns its schema, so a later edit to the schema the caller passed changes nothing here.
@@ -69,7 +69,7 @@ export class Form implements FormInterface {
 	#pending = false
 
 	/**
-	 * Open a form against a schema.
+	 * Opens a form against a schema.
 	 *
 	 * @param schema - The form to ask. It is copied, and the copy is what the form asks.
 	 * @param options - The form's settings.
@@ -132,17 +132,17 @@ export class Form implements FormInterface {
 		this.#evaluate()
 	}
 
-	/** The form's event emitter. */
+	/** Holds the form's event emitter. */
 	get emitter(): EmitterInterface<FormEventMap> {
 		return this.#emitter
 	}
 
-	/** The schema this form asks, owned and frozen. */
+	/** Holds the schema this form asks, owned and frozen. */
 	get schema(): FormSchema {
 		return this.#schema
 	}
 
-	/** The answers held right now. */
+	/** Reports the answers held right now. */
 	get values(): FormValues {
 		const values: Record<string, FieldValue> = {}
 
@@ -155,22 +155,22 @@ export class Form implements FormInterface {
 		return Object.freeze(values)
 	}
 
-	/** The answers the form opened with. */
+	/** Holds the answers the form opened with. */
 	get baseline(): FormValues {
 		return this.#baseline
 	}
 
-	/** Every error the last completed evaluation produced. */
+	/** Holds every error the last completed evaluation produced. */
 	get errors(): readonly FieldError[] {
 		return this.#errors
 	}
 
-	/** The names of the fields somebody has visited. */
+	/** Lists the names of the fields somebody has visited. */
 	get touched(): ReadonlySet<string> {
 		return new Set(this.#touched)
 	}
 
-	/** The names of the fields currently out of the form. */
+	/** Lists the names of the fields currently out of the form. */
 	get disabled(): ReadonlySet<string> {
 		const disabled = new Set<string>()
 
@@ -183,23 +183,23 @@ export class Form implements FormInterface {
 		return disabled
 	}
 
-	/** Where the form sits in its life. */
+	/** Reports where the form sits in its life. */
 	get status(): FormStatus {
 		return this.#status
 	}
 
-	/** Whether the last completed evaluation found no error. */
+	/** Reports whether the last completed evaluation found no error. */
 	get valid(): boolean {
 		return this.#errors.length === 0
 	}
 
-	/** Whether any answer has moved since the form opened. */
+	/** Reports whether any answer has moved since the form opened. */
 	get dirty(): boolean {
 		return !matchesValues(this.values, this.#baseline)
 	}
 
 	/**
-	 * The answers, once the form settles.
+	 * Holds the answers after the form settles.
 	 *
 	 * @remarks
 	 * It resolves with the submitted values on the first valid submit, and rejects with a
@@ -210,7 +210,7 @@ export class Form implements FormInterface {
 	}
 
 	/**
-	 * Find one field by name.
+	 * Finds one field by name.
 	 *
 	 * @param name - The field's name.
 	 * @returns The field, or `undefined` when the schema declares no such name.
@@ -220,20 +220,20 @@ export class Form implements FormInterface {
 	}
 
 	/**
-	 * Answer several fields at once.
+	 * Answers several fields at once.
 	 *
 	 * @param values - The answers to write, each keyed by its field name.
 	 */
 	fill(values: FormValues): void
 	/**
-	 * Answer one field.
+	 * Answers one field.
 	 *
 	 * @param name - The field's name.
 	 * @param value - The answer to write, or `undefined` to clear it.
 	 */
 	fill(name: string, value: FieldValue | undefined): void
 	/**
-	 * Answer one field or several.
+	 * Answers one field or several.
 	 *
 	 * @param input - One field's name, or the answers to write keyed by field name.
 	 * @param value - The answer to write when `input` names one field.
@@ -281,7 +281,7 @@ export class Form implements FormInterface {
 	}
 
 	/**
-	 * Record that somebody has visited a field.
+	 * Records that somebody has visited a field.
 	 *
 	 * @param name - The field's name.
 	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended, and
@@ -294,7 +294,7 @@ export class Form implements FormInterface {
 	}
 
 	/**
-	 * Fail a field from outside, for what the rules cannot see.
+	 * Fails a field from outside, for what the rules cannot see.
 	 *
 	 * @param name - The field's name.
 	 * @param message - What to tell the person.
@@ -313,22 +313,22 @@ export class Form implements FormInterface {
 		})
 	}
 
-	/** Take every field out of the form. */
+	/** Takes every field out of the form. */
 	disable(): void
 	/**
-	 * Take one field out of the form.
+	 * Takes one field out of the form.
 	 *
 	 * @param name - The field's name.
 	 */
 	disable(name: string): void
 	/**
-	 * Take several fields out of the form.
+	 * Takes several fields out of the form.
 	 *
 	 * @param names - The field names.
 	 */
 	disable(names: readonly string[]): void
 	/**
-	 * Take one or more fields out of the form.
+	 * Takes one or more fields out of the form.
 	 *
 	 * @param input - One field name, several names, or absence to select every field.
 	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended, and
@@ -340,22 +340,22 @@ export class Form implements FormInterface {
 		this.#change(input, true)
 	}
 
-	/** Put every field back into the form. */
+	/** Puts every field back into the form. */
 	enable(): void
 	/**
-	 * Put one field back into the form.
+	 * Puts one field back into the form.
 	 *
 	 * @param name - The field's name.
 	 */
 	enable(name: string): void
 	/**
-	 * Put several fields back into the form.
+	 * Puts several fields back into the form.
 	 *
 	 * @param names - The field names.
 	 */
 	enable(names: readonly string[]): void
 	/**
-	 * Put one or more fields back into the form.
+	 * Puts one or more fields back into the form.
 	 *
 	 * @param input - One field name, several names, or absence to select every field.
 	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended, and
@@ -368,7 +368,7 @@ export class Form implements FormInterface {
 	}
 
 	/**
-	 * Check every answer and settle the form when they all pass.
+	 * Checks every answer and settles the form when they all pass.
 	 *
 	 * @returns The values on success, or every error that stopped them.
 	 * @remarks
@@ -425,7 +425,7 @@ export class Form implements FormInterface {
 	}
 
 	/**
-	 * Return every answer to the ones the form opened with: the schema's defaults, overlaid with
+	 * Returns every answer to the ones the form opened with: the schema's defaults, overlaid with
 	 * any seeded `values`. Reset the runtime disabled state to the schema's declarations.
 	 *
 	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended.
@@ -451,7 +451,7 @@ export class Form implements FormInterface {
 	}
 
 	/**
-	 * Tear the form down, abandoning it when it has not settled.
+	 * Tears the form down, abandoning it when it has not settled.
 	 *
 	 * @remarks
 	 * Destroying twice does nothing the second time. A settled form keeps its `settled` status and

@@ -13,7 +13,7 @@ import { auditSchema, defineEntry, freezeEntry, matchesField, serializeForm } fr
 import { isFormSchema } from './validators.js'
 
 /**
- * Parse unknown wire data into an owned, semantically sound form schema.
+ * Parses unknown wire data into an owned, semantically sound form schema.
  *
  * @param input - The unknown schema value to parse.
  * @returns An owned schema with custom rules removed, or `undefined` on refusal.
@@ -74,7 +74,7 @@ export function parseForm(input: unknown): FormSchema | undefined {
 }
 
 /**
- * Parse one answer against its field control.
+ * Parses one answer against its field control.
  *
  * @param field - The field that defines the accepted value.
  * @param input - The unknown value to parse.
@@ -99,7 +99,7 @@ export function parseValue(field: FormField, input: unknown): FieldValue | undef
 }
 
 /**
- * Parse a strict answer record against the fields declared by a schema.
+ * Parses a strict answer record against the fields declared by a schema.
  *
  * @param schema - The schema that owns the accepted field names and controls.
  * @param input - The unknown answer record to parse.
