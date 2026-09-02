@@ -156,14 +156,14 @@ anything off-shape — including a hostile prototype, a symbol key, or a cyclic 
 
 ### Helpers
 
-The pure leaves the form composes: the prototype-safe record write, the control shape test, the
-evaluation engine, the derivations, and the wire projection.
+The pure leaves the form composes: the prototype-safe record write, `createFieldError`'s rule
+failure builder, the control shape test, the evaluation engine, the derivations, and the wire
+projection.
 
 | API                | Kind     | Summary                                                                                                  |
 | ------------------ | -------- | -------------------------------------------------------------------------------------------------------- |
 | `defineEntry`      | function | Write one own enumerable entry, so a `__proto__` key lands on the record rather than its prototype.      |
-| `freezeEntry`      | function | The same prototype-safe write, sealed — the entry is neither writable nor configurable.                  |
-| `createFieldError` | function | Build one frozen named-rule failure: the field's name, the resolved message, and the rule.               |
+| `freezeEntry`      | function | The same prototype-safe write, frozen — the entry is neither writable nor configurable.                  |
 | `matchesField`     | function | Whether one control can hold a value — the shape gate every write and every seed passes through.         |
 | `matchesAnswer`    | function | Whether a raw binding value counts as an answer — the documented projection a binding fills through.     |
 | `appliesRule`      | function | Whether one named rule applies to one field control.                                                     |
@@ -174,6 +174,7 @@ evaluation engine, the derivations, and the wire projection.
 | `extractChanges`   | function | The names whose answers differ between two value records, absence included.                              |
 | `matchesValues`    | function | Whether two answer records hold the same answers, comparing list values element by element.              |
 | `formatMessage`    | function | Resolve one rule's failure text — an override first, then `RULE_MESSAGES` — and substitute `{limit}`.    |
+| `createFieldError` | function | Build one frozen named-rule failure: the field's name, the resolved message, and the rule.               |
 | `serializeForm`    | function | Project a schema into JSON, dropping every `custom` validator and every absent member.                   |
 | `extractGroups`    | function | The groups a schema's fields actually reference, in first-reference order and without duplicates.        |
 | `auditSchema`      | function | Audit a structurally valid schema for domain invariants, returning human-readable diagnostics.           |
@@ -1398,12 +1399,13 @@ isFieldError({ field: 'a', message: 'b', rule: 'required' }) // true
 
 ### Owning what arrives
 
-The cloners are how a value stops being the caller's. The form clones the schema at construction —
-before the structural guard and the audit run, and they run against that copy — so a caller's object
-that answers each read differently cannot pass a check on one value and be stored as another; a
-later edit to the caller's object changes nothing inside the form either; it clones each list value it
-stores and each it returns, so no caller ever holds a reference to internal state. They are exported
-because a consumer building its own schema store needs the same guarantee.
+The cloners are how a value stops being the caller's. The form clones the schema at construction,
+before the structural guard and the audit run, so those checks run against the copy. A caller's
+object that answers each read differently cannot pass a check on one value and be stored as
+another. A later edit to the caller's object changes nothing inside the form. The form also clones
+each list value it stores and each it returns, so no caller ever holds a reference to internal
+state. The cloners are exported because a consumer building its own schema store needs the same
+guarantee.
 
 ```ts
 import { cloneChoices, cloneFormField, cloneFormSchema, cloneValue } from '@orkestrel/form'

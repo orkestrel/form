@@ -213,7 +213,7 @@ describe('freezeEntry', () => {
 		expect(Object.entries(target)).toEqual([[hostile, 1]])
 	})
 
-	it('seals the entry against a second write', () => {
+	it('freezes the entry against a second write', () => {
 		const target: Record<string, number> = {}
 		freezeEntry(target, 'count', 1)
 
