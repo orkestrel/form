@@ -239,7 +239,7 @@ describe('matchesField', () => {
 		const oversized = 'x'.repeat(STRING_LIMIT + 1)
 		const choices = new Proxy<Array<{ value: string; label: string }>>([], {
 			get() {
-				throw new Error('membership should not run')
+				throw new Error('membership must not run')
 			},
 		})
 

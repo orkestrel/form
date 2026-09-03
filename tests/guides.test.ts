@@ -1,5 +1,5 @@
 // The consumer-side guides-parity drop-in: runs `@orkestrel/guide`'s checks against
-// this repo's own `guides/README.md` manifest. The five constants below are this
+// this repo's own `guides/README.md` manifest. The following constants are this
 // package's own, and are the only part a sibling package changes.
 //
 // The suite transcribes and executes the flagship fence set from `guides/form.md`. It name-checks
@@ -88,8 +88,8 @@ const MODULES = Object.freeze({
  *
  * A class that one-class-per-file evicted from its single consumer cannot become a
  * local, so it stays exported without being public. Naming it here is what makes that
- * intentional rather than forgotten — and the second assertion below fails when a name
- * here stops being stranded, so the list cannot rot.
+ * intentional rather than forgotten — and the assertion that a name stays stranded fails
+ * when a name here stops being stranded, so the list cannot rot.
  *
  * This package has none: `Form` is constructible from a schema a consumer already
  * holds, so it is barrelled beside `createForm` rather than interned.
@@ -241,9 +241,9 @@ for (const entry of manifest) {
 	})
 }
 
-// Each block below transcribes one flagship fence of `guides/form.md` and asserts the
+// Each following block transcribes one flagship fence of `guides/form.md` and asserts the
 // values that fence's comments claim. A fence documenting a value the code contradicts
-// fails here; name resolution above would pass it.
+// fails here; the earlier name resolution would pass it.
 describe('form.md fences', () => {
 	it('settles the Surface opening example', async () => {
 		const form = createForm({

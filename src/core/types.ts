@@ -106,10 +106,11 @@ export interface FieldChoice {
  * @param value - The value the field holds, or `undefined` when nobody has answered it.
  * @param values - Every answer the form holds, so a rule can read its siblings.
  * @returns `true` when the value passes, or the message explaining why it failed.
- * @throws The validator's own thrown value escapes the mutation call unchanged. When a form
- *   mutation has already changed state, the throw leaves those changes beside the error list
- *   from before that mutation. An invalidation can therefore be recorded without appearing in
- *   `errors`, and a clear can reset state without emitting `clear`. Form-owned refusals use
+ * @throws Thrown when a {@link FieldValidator} throws; its own thrown value escapes the mutation
+ *   call unchanged. When a form mutation has already changed state, the throw leaves those
+ *   changes beside the error list from before that mutation. An invalidation can therefore be
+ *   recorded without appearing in `errors`, and a clear can reset state without emitting `clear`.
+ *   Form-owned refusals use
  *   {@link FormError} instead.
  * @example
  * ```ts

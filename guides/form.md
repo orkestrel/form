@@ -38,7 +38,7 @@ const result = form.submit() // { success: true, value: { email: 'ada@example.co
 const answers = await form.answer // { email: 'ada@example.com', terms: true }
 ```
 
-Everything below is exported from `@orkestrel/form` ([`src/core`](../src/core)). Nothing is internal:
+Everything in this guide is exported from `@orkestrel/form` ([`src/core`](../src/core)). Nothing is internal:
 every declaration in the module is reachable from the barrel, so a consumer holds exactly the
 mechanisms the package uses on itself.
 
@@ -88,7 +88,7 @@ The entity, its factory, its contract, and the error it raises.
 | API             | Kind      | Summary                                                                                                         |
 | --------------- | --------- | --------------------------------------------------------------------------------------------------------------- |
 | `Form`          | class     | A form — a schema, the answers given against it, and the errors they carry. Implements `FormInterface` exactly. |
-| `FormInterface` | interface | The form contract — the readonly state below plus the methods in `## Methods`.                                  |
+| `FormInterface` | interface | The form contract — the readonly state in the `## Surface` rows plus the methods in `## Methods`.               |
 | `createForm`    | function  | A form opened against a schema. The schema is copied, and the copy is what the form asks.                       |
 | `FormOptions`   | interface | How to open a form — `on` listeners, an `error` handler, seeded `values`, and per-rule `messages` overrides.    |
 | `FormStatus`    | type      | Where a form sits in its life — `editing`, `settled`, or `abandoned`. Both end states are terminal.             |
@@ -445,8 +445,8 @@ namespaces what a host put there.
 
 **It is bounded JSON.** `isFormField` admits it only through `isBoundedJSONRecord`, so a cyclic
 value, a value nested past that guard's depth bound, and anything that is not JSON — a function, a
-symbol — each refuse the whole field. Depth is the guard's job; size is the audit's, and the schema
-budgets below count `meta`'s strings and nodes. They count it a little more strictly than the
+symbol — each refuse the whole field. Depth is the guard's job; size is the audit's, and the
+following budgets count `meta`'s strings and nodes. They count it a little more strictly than the
 schema's own: a key inside `meta` counts against the text budget, and the schema's own keys —
 `control`, `name`, `rule` — do not. The stricter side is the one the host controls, which is the
 right way round.
@@ -821,7 +821,7 @@ matchesField({ control: 'text', name: 'a' }, 'x'.repeat(STRING_LIMIT + 1)) // fa
 
 `auditSchema` is the semantic pass that structural validation cannot do: duplicate names, a missing
 group, a default its own control cannot hold, a rule on a control that cannot measure it, a minimum
-above its maximum, an uncompilable pattern, or a breach of any budget above. It also reports the
+above its maximum, an uncompilable pattern, or a breach of any named budget. It also reports the
 bounds no answer could satisfy: a required closed `select` with no enabled choice, a `checkbox` whose
 positive `minimum` exceeds its enabled-choice count, and a negative `maximum` on a control that
 measures a length or a count — `text`, `editor`, `password`, `checkbox`, or `file`. A required
@@ -968,8 +968,8 @@ They differ in what they remove, and the difference is load-bearing.
 `hidden` keeps a field out of the rendered form while it still travels. `locked` renders it
 unwritable. `disabled` takes the field out of the form entirely: it is neither evaluated nor
 submitted, and its value may still appear in `values` so a renderer can show it.
-`fill` refuses none of the three switches; they constrain rendering, evaluation, and submission,
-not programmatic writes.
+`fill` refuses none of `hidden`, `locked`, and `disabled`; they constrain rendering, evaluation,
+and submission, not programmatic writes.
 
 `FieldBase.disabled` is the field's **declared, opening** state. `FormInterface.disabled` is the
 **current fact**, and the next section is how it moves.
@@ -1272,7 +1272,7 @@ That gives one sequence, and it is short:
    enabled field touched, and leaves `status` at `editing`. Calling it for exactly that is correct
    and repeatable — sync errors are the case a local failed submit is for. Read the errors off the
    returned result rather than off the form: with a `validate` listener that writes, the returned
-   result and the form can already disagree, as the section above sets out.
+   result and the form can already disagree, as the preceding section sets out.
 2. **Run the attempt against `values`.** The request is the host's: its own timeout, its own retry
    count, its own backoff. The form is not involved and knows nothing about it.
 3. **Report a refusal through `invalidate`, not through a submit.** The message lands as a
@@ -1510,8 +1510,8 @@ matchesValues({ topics: ['a'] }, { topics: ['a'] }) // true
 
 The public methods of `FormInterface`, which the `Form` class implements exactly and adds nothing
 to. Its readonly data members — `emitter`, `schema`, `values`, `baseline`, `errors`, `touched`,
-`disabled`, `status`, `valid`, `dirty`, and `answer` — stay in the `## Surface` rows above and are
-not repeated here.
+`disabled`, `status`, `valid`, `dirty`, and `answer` — stay in the preceding `## Surface` rows and
+are not repeated here.
 
 Every other row in the Surface tables is a data shape, a union, a constant, a function, or an error
 class, so none of them carries a method table. `FieldValidator` is a callable function type with one
@@ -1692,7 +1692,7 @@ next change knows what it is reopening. `Layer` names who owns the concept, and 
 | Group-level disable                    | seam          | `disable` takes no group argument. A host expands a group from the schema in one line, and a second way to name the same set is a second thing to keep consistent.                                                                                                                    |
 | Computed fields                        | host          | A field deriving its value from siblings would be a second writer of `values` and could disagree with `fill`. The host computes and fills, so one writer stays one writer.                                                                                                            |
 | Async and live choices                 | host          | `choices` is data in the schema. A list fetched or filtered while somebody types is the host building a new schema, which `parseForm` audits for it.                                                                                                                                  |
-| Drafts and autosave                    | host          | `values` is readable at any moment and `parseValues` reads a stored record back, so persistence is a host loop over those two with the host's own storage and cadence.                                                                                                                |
+| Drafts and autosave                    | host          | `values` is readable at any moment and `parseValues` reads a stored record back, so persistence is a host loop over `values` and `parseValues` with the host's own storage and cadence.                                                                                               |
 | Undo and history                       | host          | The form holds the answers and `baseline` holds the ones it opened with. A stack of everything in between is a host concern with a host's retention policy.                                                                                                                           |
 | Schema migration                       | host          | Versioning a stored schema and moving old answers onto a new one is the host's data problem. `parseForm` and `parseValues` are the gates on each side of it.                                                                                                                          |
 | Trim and normalize                     | binding       | The form stores what it is given. Trimming, case folding, and Unicode normalization belong to the binding, and `matchesAnswer` is where a value that is blank after trimming becomes absence.                                                                                         |
@@ -1707,8 +1707,8 @@ next change knows what it is reopening. `Layer` names who owns the concept, and 
 ## Tests
 
 - [`tests/guides.test.ts`](../tests/guides.test.ts) — the `## Surface` ↔ barrel bijection, the
-  `FormInterface` ↔ `Form` method bijection, and the flagship fences above executed against the real
-  source so a documented value that the code contradicts fails.
+  `FormInterface` ↔ `Form` method bijection, and the preceding flagship fences executed against the
+  real source so a documented value that the code contradicts fails.
 - [`tests/src/core/Form.test.ts`](../tests/src/core/Form.test.ts) — construction, state, `baseline`,
   `fill`, `touch`, `invalidate`, `disable`, `enable`, `submit`, `clear`, `destroy`, and the rule
   paths through the entity.

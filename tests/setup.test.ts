@@ -101,7 +101,8 @@ function measureLongest(schema: FormSchema): number {
  *
  * @remarks
  * This sums the produced strings, where the budget builders derive their sizes by subtracting a
- * reserved overhead from a requested total. The two routes disagree on any arithmetic slip.
+ * reserved overhead from a requested total. The measurement and the budget builders disagree on
+ * any arithmetic slip.
  *
  * @param schema - The schema to measure.
  * @returns The retained code-unit total.
