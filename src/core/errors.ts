@@ -1,7 +1,19 @@
 import type { JSONRecord } from '@orkestrel/contract'
 import type { FormErrorCode } from './types.js'
 
-/** Represents an error raised by the form domain. */
+/**
+ * Represents an error raised by the form domain.
+ *
+ * @example
+ * ```ts
+ * const error = new FormError('FIELD', 'The schema declares no field named "nickname"', {
+ * 	field: 'nickname',
+ * })
+ *
+ * error.code // 'FIELD'
+ * error.context // { field: 'nickname' }
+ * ```
+ */
 export class FormError extends Error {
 	/** Holds the machine-readable reason for this failure. */
 	readonly code: FormErrorCode

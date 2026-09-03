@@ -15,11 +15,6 @@ import {
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 
-async function receiveAnswer(form: FormInterface): Promise<FormValues> {
-	const values = await form.answer
-	return values
-}
-
 async function receiveAbandonment(form: FormInterface): Promise<unknown> {
 	try {
 		await form.answer
@@ -465,7 +460,7 @@ describe('wire round trip', () => {
 })
 
 describe('answer parking', () => {
-	it('resumes a parked awaiter with the submitted values snapshot', async () => {
+	it('resolves answer with the submitted values snapshot', async () => {
 		const form = new Form({
 			fields: [
 				{ control: 'text', name: 'name', rule: { required: true } },
@@ -476,10 +471,9 @@ describe('answer parking', () => {
 				},
 			],
 		})
-		const parked = receiveAnswer(form)
+		const parked = form.answer
 		const topics = ['news']
 
-		await Promise.resolve()
 		form.fill({ name: 'Ada', topics })
 		const result = form.submit()
 		topics.push('changed')

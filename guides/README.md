@@ -19,17 +19,18 @@ parity-checks the remaining fences but does not run them.
 
 ## Dependency reference
 
-[`guide.md`](guide.md) is a byte-identical mirror of the guide for `@orkestrel/guide` — the
-devDependency powering this repository's guides-parity suite
-([`tests/guides.test.ts`](../tests/guides.test.ts)). It documents **that package's** surface — the
-`Guide` and `Source` projections plus the manifest and comparison helpers — not anything sourced
-here. It is kept beside this guide set so a reader of the parity suite can see the primitives it is
-built from without leaving it.
+Each row names a byte-identical mirror of the guide for a declared dependency, documenting **that
+package's** surface rather than anything sourced here. Each is kept beside this guide set so a
+reader can see the primitives this workspace is built from without leaving it.
 
-[`scaffold.md`](scaffold.md) is a byte-identical mirror of the guide for `@orkestrel/scaffold` — the
-devDependency that generates and repairs this workspace's vendored configuration, tests, and
-tooling. It documents **that package's** surface, not anything sourced here, and it is kept for the
-same reason.
+| Mirror                       | Package               | Dependency  | What that package supplies here                                                       |
+| ---------------------------- | --------------------- | ----------- | ------------------------------------------------------------------------------------- |
+| [`contract.md`](contract.md) | `@orkestrel/contract` | runtime     | The outcome, guard, and JSON primitives `src/core` imports.                           |
+| [`emitter.md`](emitter.md)   | `@orkestrel/emitter`  | runtime     | The typed emitter a `Form` owns.                                                      |
+| [`guide.md`](guide.md)       | `@orkestrel/guide`    | development | The parity primitives [`tests/guides.test.ts`](../tests/guides.test.ts) runs on.      |
+| [`probe.md`](probe.md)       | `@orkestrel/probe`    | development | The `prove` instrument an agent arms against the `probe` Vitest project.              |
+| [`scaffold.md`](scaffold.md) | `@orkestrel/scaffold` | development | The generator that writes and repairs the vendored configuration, tests, and tooling. |
+| [`test.md`](test.md)         | `@orkestrel/test`     | development | The shared recorder, delay, and fixture helpers the suites import.                    |
 
 A mirror's own relative links address its upstream tree, so they resolve to nothing here and sit
 outside this repository's link parity. Refresh a mirror from upstream rather than rewriting it.

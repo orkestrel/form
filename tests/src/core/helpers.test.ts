@@ -1,6 +1,5 @@
 import type {
 	FieldControl,
-	FieldRule,
 	FieldRuleName,
 	FieldValue,
 	FormField,
@@ -43,7 +42,6 @@ import { describe, expect, it } from 'vitest'
 import {
 	ANSWER_CASES,
 	CHANGED_CASES,
-	MATRIX_FIELDS,
 	MATRIX_RULES,
 	MATRIX_VALUES,
 	RULE_APPLICABILITY,
@@ -52,6 +50,8 @@ import {
 	createChoiceBudgetSchema,
 	createFieldBudgetSchema,
 	createGroupBudgetSchema,
+	createMatrixCase,
+	createMatrixField,
 	createNameBudgetCases,
 	createNodeBudgetSchema,
 	createNodePopulationSchema,
@@ -59,87 +59,6 @@ import {
 	createTextBudgetSchema,
 	createTextPopulationSchema,
 } from '../../setup.js'
-
-function createMatrixField(control: FieldControl, rule: FieldRule): FormField {
-	const field = MATRIX_FIELDS[control]
-	return { ...field, rule }
-}
-
-function createMinimumCase(control: FieldControl): readonly [FieldRule, FieldValue, FieldValue] {
-	switch (control) {
-		case 'text':
-		case 'editor':
-		case 'password':
-			return [{ minimum: 2 }, 'ab', 'a']
-		case 'number':
-			return [{ minimum: 2 }, 2, 1]
-		case 'date':
-			return [{ minimum: '2026-08-15' }, '2026-08-15', '2026-08-14']
-		case 'time':
-			return [{ minimum: '09:30' }, '09:30', '09:29']
-		case 'datetime':
-			return [{ minimum: '2026-08-15T09:30' }, '2026-08-15T09:30', '2026-08-15T09:29']
-		case 'checkbox':
-			return [{ minimum: 2 }, ['one', 'two'], ['one']]
-		case 'file':
-			return [{ minimum: 2 }, ['one.txt', 'two.txt'], ['one.txt']]
-		case 'color':
-		case 'confirm':
-		case 'select':
-			return [{ minimum: 99 }, MATRIX_VALUES[control], MATRIX_VALUES[control]]
-	}
-}
-
-function createMaximumCase(control: FieldControl): readonly [FieldRule, FieldValue, FieldValue] {
-	switch (control) {
-		case 'text':
-		case 'editor':
-		case 'password':
-			return [{ maximum: 2 }, 'ab', 'abc']
-		case 'number':
-			return [{ maximum: 2 }, 2, 3]
-		case 'date':
-			return [{ maximum: '2026-08-15' }, '2026-08-15', '2026-08-16']
-		case 'time':
-			return [{ maximum: '09:30' }, '09:30', '09:31']
-		case 'datetime':
-			return [{ maximum: '2026-08-15T09:30' }, '2026-08-15T09:30', '2026-08-15T09:31']
-		case 'checkbox':
-			return [{ maximum: 1 }, ['one'], ['one', 'two']]
-		case 'file':
-			return [{ maximum: 1 }, ['one.txt'], ['one.txt', 'two.txt']]
-		case 'color':
-		case 'confirm':
-		case 'select':
-			return [{ maximum: 0 }, MATRIX_VALUES[control], MATRIX_VALUES[control]]
-	}
-}
-
-function createMatrixCase(
-	control: FieldControl,
-	rule: FieldRuleName,
-): readonly [FieldRule, FieldValue | undefined, FieldValue | undefined] {
-	switch (rule) {
-		case 'required':
-			return [{ required: true }, MATRIX_VALUES[control], undefined]
-		case 'minimum':
-			return createMinimumCase(control)
-		case 'maximum':
-			return createMaximumCase(control)
-		case 'step':
-			return [{ step: 2 }, 4, 3]
-		case 'pattern':
-			return [{ pattern: '^match$' }, 'match', 'miss']
-		case 'email':
-			return [{ email: true }, 'ada@example.com', 'invalid']
-		case 'url':
-			return [{ url: true }, 'https://example.com', 'invalid']
-		case 'integer':
-			return control === 'number' ? [{ integer: true }, 42, 4.2] : [{ integer: true }, '42', '4.2']
-		case 'alphanumeric':
-			return [{ alphanumeric: true }, 'Ada42', 'Ada 42']
-	}
-}
 
 describe('createFieldError', () => {
 	const field: FormField = { control: 'text', name: 'nickname' }

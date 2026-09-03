@@ -225,6 +225,8 @@ export function appliesRule(control: FieldControl, rule: FieldRuleName): boolean
  * @param values - Every value available to a custom rule.
  * @param messages - Optional rule-specific message replacements.
  * @returns Every failure in rule order.
+ * @throws Thrown when a {@link FieldValidator} supplied through {@link FieldRule.custom} throws:
+ *   its own value escapes unchanged, because this helper adds no boundary around it.
  */
 export function evaluateField(
 	field: FormField,
@@ -387,6 +389,8 @@ export function evaluateField(
  * @param values - The values keyed by field name.
  * @param options - Optional message replacements and the effective disabled field set.
  * @returns Every field failure in schema and rule order.
+ * @throws Thrown when a {@link FieldValidator} supplied through {@link FieldRule.custom} throws:
+ *   its own value escapes unchanged, because this helper adds no boundary around it.
  */
 export function evaluateForm(
 	schema: FormSchema,
@@ -474,7 +478,7 @@ export function matchesValue(a: FieldValue, b: FieldValue): boolean {
  * {@link matchesValue}. The returned set is a new snapshot, exposed as readonly because later
  * changes to either input never alter its membership.
  *
- * @param current - The values held now.
+ * @param current - The values the form holds.
  * @param opened - The values held when the form opened.
  * @returns A readonly snapshot of changed field names.
  */

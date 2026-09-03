@@ -142,7 +142,7 @@ export class Form implements FormInterface {
 		return this.#schema
 	}
 
-	/** Reports the answers held right now. */
+	/** Reports the answers the form holds. */
 	get values(): FormValues {
 		const values: Record<string, FieldValue> = {}
 
@@ -170,7 +170,7 @@ export class Form implements FormInterface {
 		return new Set(this.#touched)
 	}
 
-	/** Lists the names of the fields currently out of the form. */
+	/** Lists the names of the fields that are out of the form. */
 	get disabled(): ReadonlySet<string> {
 		const disabled = new Set<string>()
 

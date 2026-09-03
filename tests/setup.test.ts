@@ -5,7 +5,9 @@ import {
 	RULE_MESSAGES,
 	STRING_LIMIT,
 	TEXT_LIMIT,
+	appliesRule,
 	auditSchema,
+	evaluateField,
 	matchesField,
 	serializeForm,
 } from '@src/core'
@@ -23,6 +25,8 @@ import {
 	createChoiceBudgetSchema,
 	createFieldBudgetSchema,
 	createGroupBudgetSchema,
+	createMatrixCase,
+	createMatrixField,
 	createNameBudgetCases,
 	createNodeBudgetSchema,
 	createNodePopulationSchema,
@@ -232,6 +236,32 @@ describe('control fixtures', () => {
 		expect(Object.keys(RULE_MESSAGES).sort()).toStrictEqual([...MATRIX_RULES].sort())
 		expect(new Set(MATRIX_RULES).size).toBe(MATRIX_RULES.length)
 		expect(Object.keys(RULE_APPLICABILITY).sort()).toStrictEqual([...FIELD_CONTROLS].sort())
+	})
+
+	it('carries the authored rule onto its control row and separates the pair it returns', () => {
+		for (const control of FIELD_CONTROLS) {
+			for (const rule of MATRIX_RULES) {
+				const [authored, passing, failing] = createMatrixCase(control, rule)
+				const field = createMatrixField(control, authored)
+
+				// The builders own the pair, and `evaluateField` is what says the pair is a pair: the
+				// passing value carries no failure and the failing value carries this rule's, wherever
+				// the rule applies to the control at all.
+				expect({
+					control,
+					rule,
+					field,
+					passing: evaluateField(field, passing, {}).map((error) => error.rule),
+					failing: evaluateField(field, failing, {}).map((error) => error.rule),
+				}).toStrictEqual({
+					control,
+					rule,
+					field: { ...MATRIX_FIELDS[control], rule: authored },
+					passing: [],
+					failing: appliesRule(control, rule) ? [rule] : [],
+				})
+			}
+		}
 	})
 })
 

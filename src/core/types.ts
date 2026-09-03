@@ -8,10 +8,10 @@ import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkes
  * The control is the discriminant of every {@link FormField} variant, so choosing it fixes
  * which options that field accepts and which {@link FieldValue} it holds.
  *
- * Three members need saying out loud. `confirm` is a single on/off box holding a boolean, so
- * a lone browser checkbox is a `confirm`. `checkbox` is the multi-choice group holding the
- * checked values as a list, never a single box. `datetime` is the browser's `datetime-local`:
- * a wall-clock date and time carrying no zone.
+ * The `confirm`, `checkbox`, and `datetime` members need saying out loud. `confirm` is a single
+ * on/off box holding a boolean, so a lone browser checkbox is a `confirm`. `checkbox` is the
+ * multi-choice group holding the checked values as a list, never a single box. `datetime` is the
+ * browser's `datetime-local`: a wall-clock date and time carrying no zone.
  *
  * @example
  * ```ts
@@ -103,7 +103,7 @@ export interface FieldChoice {
  * is what makes a rule such as "required once the sibling says yes" expressible, and it means an
  * unanswered field can carry both a `required` message and this validator's own.
  *
- * @param value - The value the field currently holds, or `undefined` when nobody has answered it.
+ * @param value - The value the field holds, or `undefined` when nobody has answered it.
  * @param values - Every answer the form holds, so a rule can read its siblings.
  * @returns `true` when the value passes, or the message explaining why it failed.
  * @throws The validator's own thrown value escapes the mutation call unchanged. When a form
@@ -179,7 +179,7 @@ export interface FieldError {
  * @remarks
  * `name` keys the field in {@link FormValues} and `group` names a {@link FormGroup}.
  *
- * The three visibility switches differ in what they remove. `hidden` keeps the field out of
+ * `hidden`, `locked`, and `disabled` differ in what they remove. `hidden` keeps the field out of
  * the rendered form, `locked` renders it unwritable, and both are still validated and still
  * submitted. `disabled` takes the field out of the form entirely: it is neither validated nor
  * submitted. It is the field's declared, opening state; {@link FormInterface.disabled} is the
@@ -405,7 +405,6 @@ export type FormEventMap = {
 /**
  * Describes how to check a schema against a set of answers.
  *
- * @param options - The evaluation's settings.
  * @remarks
  * `messages` replaces the default message of a rule, keyed by {@link FieldRuleName}.
  *
@@ -430,7 +429,6 @@ export interface EvaluationOptions {
 /**
  * Describes how to open a form.
  *
- * @param options - The form's settings.
  * @remarks
  * `on` wires listeners at construction and `error` receives any throw from one of them.
  * `values` seeds the answers, overriding each field's declared default. `messages` replaces
@@ -474,7 +472,7 @@ export interface FormInterface {
 	readonly emitter: EmitterInterface<FormEventMap>
 	/** Holds the schema this form asks. */
 	readonly schema: FormSchema
-	/** Reports the answers held right now. */
+	/** Reports the answers the form holds. */
 	readonly values: FormValues
 	/**
 	 * Holds the answers the form opened with: the schema's defaults, overlaid with any seeded values.
@@ -489,7 +487,7 @@ export interface FormInterface {
 	/** Lists the names of the fields somebody has visited. */
 	readonly touched: ReadonlySet<string>
 	/**
-	 * Lists the names of the fields currently out of the form.
+	 * Lists the names of the fields that are out of the form.
 	 *
 	 * @remarks
 	 * It opens as the set the schema declares through {@link FieldBase.disabled} and moves with
