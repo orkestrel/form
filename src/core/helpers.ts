@@ -83,7 +83,7 @@ export function defineEntry<T>(target: Record<string, T>, name: string, value: T
  *
  * @remarks
  * The prototype-safe write of {@link defineEntry}, frozen: the entry is neither writable nor
- * configurable, so the record a parser hands back cannot be edited through the key it just filled.
+ * configurable, so the record a parser hands back cannot be edited through the key it filled.
  *
  * @example
  * ```ts

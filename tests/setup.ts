@@ -491,8 +491,8 @@ export function passValidation(): true {
 }
 
 /**
- * Build a {@link FieldValidator} that answers each call from a fixed sequence, clamping to the
- * last entry once the sequence is exhausted.
+ * Builds a {@link FieldValidator} that answers each call from a fixed sequence, clamping to the
+ * last entry after the sequence is exhausted.
  *
  * @param answers The answer for each call in order; the final entry repeats after exhaustion.
  * @returns A validator whose nth call returns `answers[n]`, clamped to the last index.
