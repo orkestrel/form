@@ -95,29 +95,29 @@ export const DATETIME_PATTERN = Object.freeze(
 	/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/,
 )
 
-/** Caps the accepted source length for an authored regular expression. */
+/** Caps the accepted source length for an authored regular expression, at 256. */
 export const PATTERN_LIMIT = 256
 
-/** Caps the number of fields one schema may declare. */
+/** Caps the number of fields one schema may declare, at 512. */
 export const FIELD_LIMIT = 512
 
-/** Caps the number of groups one schema may declare. */
+/** Caps the number of groups one schema may declare, at 64. */
 export const GROUP_LIMIT = 64
 
-/** Caps the number of choices one `select` or `checkbox` field may offer. */
+/** Caps the number of choices one `select` or `checkbox` field may offer, at 1024. */
 export const CHOICE_LIMIT = 1024
 
-/** Caps the number of entries one list-valued answer may hold. */
+/** Caps the number of entries one list-valued answer may hold, at 1024. */
 export const LIST_LIMIT = 1024
 
-/** Caps the length, in UTF-16 code units, of a schema, group, or field name. */
+/** Caps the length, in UTF-16 code units, of a schema, group, or field name, at 128. */
 export const NAME_LIMIT = 128
 
-/** Caps the length, in UTF-16 code units, of any single retained string. */
+/** Caps the length, in UTF-16 code units, of any single retained string, at 65536. */
 export const STRING_LIMIT = 65536
 
-/** Caps the total length, in UTF-16 code units, of every string one schema retains. */
+/** Caps the total length, in UTF-16 code units, of every string one schema retains, at 1048576. */
 export const TEXT_LIMIT = 1048576
 
-/** Caps the total number of records, arrays, and leaves one schema retains. */
+/** Caps the total number of records, arrays, and leaves one schema retains, at 16384. */
 export const NODE_LIMIT = 16384

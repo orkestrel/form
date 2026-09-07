@@ -452,7 +452,7 @@ export interface FormOptions {
 }
 
 /**
- * Represents a form: a schema, the answers given against it, and the errors they carry.
+ * Declares the contract a form exposes: the state it holds and the calls that move it.
  *
  * @remarks
  * `valid` is true when the last completed evaluation found no error, and `dirty` is true once
@@ -518,7 +518,7 @@ export interface FormInterface {
 	 */
 	field(name: string): FormField | undefined
 	/**
-	 * Answers several fields at once.
+	 * Answers one field, or several at once.
 	 *
 	 * @param values - The answers to write, each keyed by its field name.
 	 */
@@ -548,7 +548,7 @@ export interface FormInterface {
 	 */
 	invalidate(name: string, message: string): void
 	/**
-	 * Takes every field out of the form.
+	 * Takes one field, several fields, or every field out of the form.
 	 *
 	 * @remarks
 	 * A disabled field is neither evaluated nor submitted. Its answer is kept, and so is any
@@ -574,7 +574,7 @@ export interface FormInterface {
 	 */
 	disable(names: readonly string[]): void
 	/**
-	 * Puts every field back into the form.
+	 * Puts one field, several fields, or every field back into the form.
 	 *
 	 * @remarks
 	 * An enabled field is evaluated and submitted again, and any invalidation held while it was
@@ -604,11 +604,11 @@ export interface FormInterface {
 	 */
 	submit(): FormResult
 	/**
-	 * Returns every answer to {@link FormInterface.baseline}, the answers the form opened with.
+	 * Returns every answer to the ones the form opened with.
 	 *
 	 * @remarks
-	 * The runtime disabled overlay resets with them, so {@link FormInterface.disabled} reads the
-	 * schema's declarations again.
+	 * Those answers are {@link FormInterface.baseline}. The runtime disabled overlay resets with
+	 * them, so {@link FormInterface.disabled} reads the schema's declarations again.
 	 */
 	clear(): void
 	/**

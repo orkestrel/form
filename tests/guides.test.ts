@@ -23,7 +23,7 @@ import {
 	resolveLink,
 } from '@orkestrel/guide'
 import { readFileSync } from 'node:fs'
-import { createRecorder, requireValue, resolveRoot } from '@orkestrel/test'
+import { createRecorder, requireValue } from '@orkestrel/test'
 import { readInventory } from '@orkestrel/test/server'
 import type {
 	CheckboxField,
@@ -102,7 +102,7 @@ const INTERNAL: readonly string[] = Object.freeze([])
 /** Root-level files these checks read. `readInventory` walks directories only. */
 const ROOT_FILES = Object.freeze(['AGENTS.md', 'README.md'])
 
-const root = resolveRoot(import.meta)
+const root = new URL('../', import.meta.url)
 const files: Record<string, string> = {
 	...readInventory(root, ['src', 'guides', 'tests'], { extensions: ['.ts', '.md'] }),
 }
@@ -217,7 +217,7 @@ for (const entry of manifest) {
 		for (const group of guide.methods()) {
 			const members = source.methods(group.interface).map((method) => method.name)
 			const documented = group.methods.map((method) => method.name)
-			const entity = group.interface.replace(/Interface$/u, '')
+			const entity = group.interface.replace(/Interface$/, '')
 			describe(`${group.interface}`, () => {
 				it('documents at least one method', () => {
 					expect(group.methods.length).toBeGreaterThan(0)
@@ -278,7 +278,7 @@ for (const entry of manifest) {
 		})
 
 		for (const group of guide.methods()) {
-			const entity = group.interface.replace(/Interface$/u, '')
+			const entity = group.interface.replace(/Interface$/, '')
 			const documented = group.methods.map((method) => method.name)
 			const examples =
 				entity === group.interface
