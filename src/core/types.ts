@@ -235,13 +235,13 @@ export interface NumberField extends FieldBase {
 	readonly placeholder?: string
 }
 
-/** Represents a calendar date, held as the control's own string. */
+/** Represents a calendar date, held as the control's own `YYYY-MM-DD` string. */
 export interface DateField extends FieldBase {
 	readonly control: 'date'
 	readonly default?: string
 }
 
-/** Represents a time of day, held as the control's own string. */
+/** Represents a time of day, held as the control's own `HH:MM` string, with seconds optional. */
 export interface TimeField extends FieldBase {
 	readonly control: 'time'
 	readonly default?: string
@@ -253,7 +253,7 @@ export interface DatetimeField extends FieldBase {
 	readonly default?: string
 }
 
-/** Represents a color, held as the control's own string. */
+/** Represents a color, held as the control's own six-digit `#rrggbb` string. */
 export interface ColorField extends FieldBase {
 	readonly control: 'color'
 	readonly default?: string
@@ -293,11 +293,11 @@ export interface CheckboxField extends FieldBase {
 }
 
 /**
- * Represents one or more files.
+ * Represents one or more files, by name.
  *
  * @remarks
- * `accept` lists the media types and extensions the control offers, in the form the host
- * expects.
+ * A value is the names alone: bytes never enter the document. `accept` lists the media types
+ * and extensions the control offers, in the form the host expects.
  */
 export interface FileField extends FieldBase {
 	readonly control: 'file'
@@ -539,6 +539,10 @@ export interface FormInterface {
 	/**
 	 * Fails a field from outside, for what the rules cannot see.
 	 *
+	 * @remarks
+	 * One field holds one external failure, so a second call replaces the first, and the failure
+	 * lasts until that field is filled again or the form is cleared.
+	 *
 	 * @param name - The field's name.
 	 * @param message - What to tell the person.
 	 */
@@ -611,8 +615,9 @@ export interface FormInterface {
 	 * Tears the form down, abandoning it when it has not settled.
 	 *
 	 * @remarks
-	 * A request from inside a listener defers teardown until the outermost mutation batch closes,
-	 * so an in-flight settlement can win and leave the form `settled` rather than `abandoned`.
+	 * Tearing down twice does nothing the second time. A request from inside a listener defers
+	 * teardown until the outermost mutation batch closes, so an in-flight settlement can win and
+	 * leave the form `settled` rather than `abandoned`.
 	 */
 	destroy(): void
 }

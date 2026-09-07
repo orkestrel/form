@@ -76,6 +76,10 @@ export function parseForm(input: unknown): FormSchema | undefined {
 /**
  * Parses one answer against its field control.
  *
+ * @remarks
+ * A numeric string coerces to a number for a `number` field, and `'true'` and `'false'` coerce to
+ * a boolean for a `confirm` field. Every other value must already have its control's shape.
+ *
  * @param field - The field that defines the accepted value.
  * @param input - The unknown value to parse.
  * @returns The typed or lexically coerced field value, or `undefined` on refusal.

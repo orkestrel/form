@@ -13,8 +13,10 @@ import { Form } from './Form.js'
  * @throws A {@link FormError} coded `SCHEMA` when the schema is malformed, `FIELD` when
  *   `options.values` names a field the schema does not declare, and `CONTROL` when a seeded value
  *   is one its field's control cannot hold.
- * @example
+ * @example Open a form, answer it, and settle it
  * ```ts
+ * import { createForm } from '@orkestrel/form'
+ *
  * const form = createForm({
  * 	label: 'Sign up',
  * 	fields: [
@@ -24,7 +26,8 @@ import { Form } from './Form.js'
  * })
  *
  * form.fill({ email: 'ada@example.com', terms: true })
- * form.submit() // { success: true, value: { email: 'ada@example.com', terms: true } }
+ * const result = form.submit() // { success: true, value: { email: 'ada@example.com', terms: true } }
+ * const answers = await form.answer // { email: 'ada@example.com', terms: true }
  * ```
  */
 export function createForm(schema: FormSchema, options?: FormOptions): FormInterface {

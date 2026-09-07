@@ -28,7 +28,8 @@ import {
 import { isFormSchema } from './validators.js'
 
 /**
- * Represents a form: a schema, the answers given against it, and the errors they carry.
+ * Implements `FormInterface` exactly, over an owned schema, the answers given against it, and the
+ * errors they carry.
  *
  * @remarks
  * The form owns its schema, so a later edit to the schema the caller passed changes nothing here.

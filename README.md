@@ -1,14 +1,16 @@
 # @orkestrel/form
 
-The environment-agnostic form document for the `@orkestrel` line — a schema of field controls, the
-answers given against it, declarative validation carried as data, and a submit that settles exactly
-once. A terminal prompt and a browser form ask the same thing in different places, so this package
-ships what they share and neither renders nor reads input itself. Its `answer` promise is the
-parking seam a server needs: hand the document out, wait, receive the answers back. A live form can
-take a field out and put it back with `disable` and `enable`, and exported budgets bound what one
-schema and its answers may retain, so a document that arrives from a wire costs a known maximum
-before anything decides to trust it.
-Built on `@orkestrel/contract` and `@orkestrel/emitter`.
+> The environment-agnostic form document: a `FormSchema` stating what is asked, a `Form` holding
+> the answers given against it, declarative `FieldRule` data stating what those answers must
+> satisfy, and one submit that settles the form exactly once.
+
+A terminal prompt and a browser form ask the same thing in different places, so this package ships
+what they share and neither renders nor reads input itself. Its `answer` promise is the parking seam
+a server needs: hand the document out, wait, receive the answers back. A live form can take a field
+out and put it back with `disable` and `enable`, and exported budgets bound what one schema and its
+answers may retain, so a document that arrives from a wire costs a known maximum before anything
+decides to trust it. Built on `@orkestrel/contract` and `@orkestrel/emitter`, and part of the
+`@orkestrel` line.
 
 ## Install
 

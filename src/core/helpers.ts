@@ -104,6 +104,10 @@ export function freezeEntry<T>(target: Record<string, T>, name: string, value: T
 /**
  * Checks whether a value has the shape required by one field control.
  *
+ * @remarks
+ * Every write and every seeded value passes through this gate, and it reads `STRING_LIMIT` and
+ * `LIST_LIMIT` before it consults the control, so no regular expression sees an over-long value.
+ *
  * @param field - The field that owns the value.
  * @param value - The unknown value to inspect.
  * @returns True if the control can hold the value; false otherwise.
@@ -415,6 +419,10 @@ export function evaluateForm(
 /**
  * Computes the values explicitly seeded by a schema.
  *
+ * @remarks
+ * `password` and `file` declare no default, so a field of either control never appears in the
+ * result.
+ *
  * @param schema - The schema whose defaults to collect.
  * @returns A value record containing only fields with defaults.
  */
@@ -516,6 +524,10 @@ export function matchesValues(a: FormValues, b: FormValues): boolean {
 
 /**
  * Resolves and interpolates one rule message.
+ *
+ * @remarks
+ * A replacement in `messages` is read first and {@link RULE_MESSAGES} supplies the copy otherwise,
+ * and `{limit}` in whichever text wins is replaced with the rule's operand.
  *
  * @param rule - The rule whose message to resolve.
  * @param limit - The optional operand substituted for `{limit}`.

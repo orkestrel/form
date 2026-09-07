@@ -48,6 +48,10 @@ export function isFormStatus(input: unknown): input is FormStatus {
 /**
  * Determines whether an unknown value has a form field value shape.
  *
+ * @remarks
+ * A string, a finite number, a boolean, and a list of strings each qualify. A number that is not
+ * finite does not, so `NaN` and `Infinity` are refused.
+ *
  * @param input - The value to inspect.
  * @returns True if the value is a field value; false otherwise.
  */
@@ -245,6 +249,10 @@ export function isFormGroup(input: unknown): input is FormGroup {
 
 /**
  * Determines whether an unknown value is one exact structural form schema.
+ *
+ * @remarks
+ * Structure alone is read. Domain soundness — a duplicate name, a bound no answer satisfies, a
+ * breached budget — is {@link auditSchema}'s question.
  *
  * @param input - The value to inspect.
  * @returns True if the value is a structurally valid form schema; false otherwise.
