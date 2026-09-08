@@ -99,20 +99,22 @@ The entity, its factory, its contract, and the error it raises.
 
 A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an
 optional member and `plus` introducing its call-signature members, and a type alias's own type
-literal with a union's arms escaped as `\|`. A class row and a function row carry none.
+literal with a union's arms escaped as `\|`. A function row's `Shape` cell holds its signature,
+and a guard row's the type it narrows to. A class row's `Shape` cell holds the interface it
+implements, or its constructor signature where it implements none.
 
 | API             | Kind      | Shape                                                                                                                                                                         | Summary                                                                                                            |
 | --------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `Form`          | class     |                                                                                                                                                                               | Implements `FormInterface` exactly, over an owned schema, the answers given against it, and the errors they carry. |
+| `Form`          | class     | `FormInterface`                                                                                                                                                               | Implements `FormInterface` exactly, over an owned schema, the answers given against it, and the errors they carry. |
 | `FormInterface` | interface | `{ emitter, schema, values, baseline, errors, touched, disabled, status, valid, dirty, answer } plus field, fill, touch, invalidate, disable, enable, submit, clear, destroy` | Declares the contract a form exposes: the state it holds and the calls that move it.                               |
-| `createForm`    | function  |                                                                                                                                                                               | Opens a form against a schema.                                                                                     |
+| `createForm`    | function  | `(schema: FormSchema, options?: FormOptions) => FormInterface`                                                                                                                | Opens a form against a schema.                                                                                     |
 | `FormOptions`   | interface | `{ on?, error?, values?, messages? }`                                                                                                                                         | Describes how to open a form.                                                                                      |
 | `FormStatus`    | type      | `'editing' \| 'settled' \| 'abandoned'`                                                                                                                                       | Represents where a form sits in its life.                                                                          |
 | `FormResult`    | type      | `Result<FormValues, readonly FieldError[]>`                                                                                                                                   | Reports what a submit answers with: the values, or every error that stopped them.                                  |
 | `FormEventMap`  | type      | `{ fill, validate, disable, enable, submit, clear, abandon }`                                                                                                                 | Lists everything a form announces.                                                                                 |
-| `FormError`     | class     |                                                                                                                                                                               | Represents an error raised by the form domain.                                                                     |
+| `FormError`     | class     | `new (code: FormErrorCode, message: string, context?: JSONRecord) => FormError`                                                                                               | Represents an error raised by the form domain.                                                                     |
 | `FormErrorCode` | type      | `'SCHEMA' \| 'FIELD' \| 'CONTROL' \| 'SETTLED' \| 'ABANDONED'`                                                                                                                | Names the machine-readable code a form error carries.                                                              |
-| `isFormError`   | function  |                                                                                                                                                                               | Determines whether an unknown value is a form error.                                                               |
+| `isFormError`   | function  | `FormError`                                                                                                                                                                   | Determines whether an unknown value is a form error.                                                               |
 
 `FormInterface`'s readonly data members are the names in its `Shape` cell before `plus`, and they
 stay here rather than in `## Methods`; the call-signature members after `plus` are documented under
@@ -1245,6 +1247,11 @@ form.submit()
 
 await parked // { name: 'Ada' }
 ```
+
+### Abandoning a parked answer
+
+Destroying a form before it settles rejects every parked `answer` with a `FormError` coded
+`ABANDONED`, which the parked task recovers through `isFormError`.
 
 ```ts
 import { createForm, isFormError } from '@orkestrel/form'
