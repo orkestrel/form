@@ -1,6 +1,6 @@
 // The consumer-side guides-parity drop-in: runs `@orkestrel/guide`'s checks against
 // this repo's own `guides/README.md` manifest. The constants that follow are this
-// package's own, and are the only part a sibling package changes.
+// package's own, as is the executed section that closes the file.
 //
 // The suite transcribes and executes the flagship fence set from `guides/form.md`. It name-checks
 // and parity-checks the remaining fences but does not run them. Change a flagship fence, change its

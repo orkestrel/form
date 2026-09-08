@@ -25,6 +25,8 @@ the mechanisms the package uses on itself.
 
 ### Open a form, answer it, and settle it
 
+Builds a two-field sign-up form, fills both answers, submits, and awaits the settled result.
+
 ```ts
 import { createForm } from '@orkestrel/form'
 
@@ -49,7 +51,8 @@ worked through in [Controls](#controls).
 
 A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an
 optional member and `plus` introducing its call-signature members, and a type alias's own type
-literal with a union's arms escaped as `\|`.
+literal with a union's arms escaped as `\|`. An extended interface's name comes before `plus`,
+with the members it adds after.
 
 | API             | Kind      | Shape                                                                                                                                                                            | Summary                                                                                       |
 | --------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -59,18 +62,18 @@ literal with a union's arms escaped as `\|`.
 | `FieldBase`     | interface | `{ name, label?, help?, group?, hidden?, disabled?, locked?, rule?, meta? }`                                                                                                     | Declares what every field carries, whatever its control.                                      |
 | `FieldControl`  | type      | `'text' \| 'editor' \| 'password' \| 'number' \| 'date' \| 'time' \| 'datetime' \| 'color' \| 'confirm' \| 'select' \| 'checkbox' \| 'file'`                                     | Names the control a field presents to the person answering it.                                |
 | `FieldChoice`   | interface | `{ value, label, help?, disabled? }`                                                                                                                                             | Represents one option a `select` or `checkbox` field offers.                                  |
-| `TextField`     | interface | `{ control, default?, placeholder? }`                                                                                                                                            | Represents a single line of text.                                                             |
-| `EditorField`   | interface | `{ control, default?, placeholder? }`                                                                                                                                            | Represents text over many lines.                                                              |
-| `PasswordField` | interface | `{ control, mask? }`                                                                                                                                                             | Represents a secret, obscured as it is typed.                                                 |
-| `NumberField`   | interface | `{ control, default?, placeholder? }`                                                                                                                                            | Represents a number.                                                                          |
-| `DateField`     | interface | `{ control, default? }`                                                                                                                                                          | Represents a calendar date, held as the control's own `YYYY-MM-DD` string.                    |
-| `TimeField`     | interface | `{ control, default? }`                                                                                                                                                          | Represents a time of day, held as the control's own `HH:MM` string, with seconds optional.    |
-| `DatetimeField` | interface | `{ control, default? }`                                                                                                                                                          | Represents a date and a time of day together, with no zone, held as the control's own string. |
-| `ColorField`    | interface | `{ control, default? }`                                                                                                                                                          | Represents a color, held as the control's own six-digit `#rrggbb` string.                     |
-| `ConfirmField`  | interface | `{ control, default? }`                                                                                                                                                          | Represents a single on/off box, holding a boolean.                                            |
-| `SelectField`   | interface | `{ control, choices, default?, open? }`                                                                                                                                          | Represents one choice out of a list.                                                          |
-| `CheckboxField` | interface | `{ control, choices, default? }`                                                                                                                                                 | Represents any number of choices out of a list, holding the checked values.                   |
-| `FileField`     | interface | `{ control, accept?, multiple? }`                                                                                                                                                | Represents one or more files, by name.                                                        |
+| `TextField`     | interface | `FieldBase plus { control, default?, placeholder? }`                                                                                                                             | Represents a single line of text.                                                             |
+| `EditorField`   | interface | `FieldBase plus { control, default?, placeholder? }`                                                                                                                             | Represents text over many lines.                                                              |
+| `PasswordField` | interface | `FieldBase plus { control, mask? }`                                                                                                                                              | Represents a secret, obscured as it is typed.                                                 |
+| `NumberField`   | interface | `FieldBase plus { control, default?, placeholder? }`                                                                                                                             | Represents a number.                                                                          |
+| `DateField`     | interface | `FieldBase plus { control, default? }`                                                                                                                                           | Represents a calendar date, held as the control's own `YYYY-MM-DD` string.                    |
+| `TimeField`     | interface | `FieldBase plus { control, default? }`                                                                                                                                           | Represents a time of day, held as the control's own `HH:MM` string, with seconds optional.    |
+| `DatetimeField` | interface | `FieldBase plus { control, default? }`                                                                                                                                           | Represents a date and a time of day together, with no zone, held as the control's own string. |
+| `ColorField`    | interface | `FieldBase plus { control, default? }`                                                                                                                                           | Represents a color, held as the control's own six-digit `#rrggbb` string.                     |
+| `ConfirmField`  | interface | `FieldBase plus { control, default? }`                                                                                                                                           | Represents a single on/off box, holding a boolean.                                            |
+| `SelectField`   | interface | `FieldBase plus { control, choices, default?, open? }`                                                                                                                           | Represents one choice out of a list.                                                          |
+| `CheckboxField` | interface | `FieldBase plus { control, choices, default? }`                                                                                                                                  | Represents any number of choices out of a list, holding the checked values.                   |
+| `FileField`     | interface | `FieldBase plus { control, accept?, multiple? }`                                                                                                                                 | Represents one or more files, by name.                                                        |
 
 ### Answers and rules
 
@@ -263,6 +266,8 @@ exactly what "suggest these, accept anything" means.
 
 ### text
 
+Declares a `TextField` carrying a placeholder and a required-and-email rule.
+
 ```ts
 import type { TextField } from '@orkestrel/form'
 
@@ -276,6 +281,8 @@ const email: TextField = {
 ```
 
 ### editor
+
+Declares an `EditorField` bounded by a maximum-length rule.
 
 ```ts
 import type { EditorField } from '@orkestrel/form'
@@ -323,6 +330,8 @@ const volume: NumberField = {
 
 ### date
 
+Declares a `DateField` bounded by a minimum and a maximum calendar date.
+
 ```ts
 import type { DateField } from '@orkestrel/form'
 
@@ -335,6 +344,8 @@ const start: DateField = {
 ```
 
 ### time
+
+Declares a `TimeField` with a default and a minimum-and-maximum time-of-day rule.
 
 ```ts
 import type { TimeField } from '@orkestrel/form'
@@ -350,6 +361,8 @@ const opens: TimeField = {
 
 ### datetime
 
+Declares a `DatetimeField` bounded by a minimum date and time.
+
 ```ts
 import type { DatetimeField } from '@orkestrel/form'
 
@@ -363,6 +376,8 @@ const slot: DatetimeField = {
 
 ### color
 
+Declares a `ColorField` seeded with a default six-digit color.
+
 ```ts
 import type { ColorField } from '@orkestrel/form'
 
@@ -375,6 +390,8 @@ const brand: ColorField = {
 ```
 
 ### confirm
+
+Declares a `ConfirmField` a submit refuses to pass until it is required and checked.
 
 ```ts
 import type { ConfirmField } from '@orkestrel/form'
