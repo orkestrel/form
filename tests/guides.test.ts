@@ -6,25 +6,6 @@
 // and parity-checks the remaining fences but does not run them. Change a flagship fence, change its
 // transcription.
 
-import { describe, expect, it } from 'vitest'
-import {
-	computeSymbolKey,
-	createGuide,
-	createSource,
-	createSourceManager,
-	extractFenceImports,
-	findDrift,
-	findMissing,
-	findMissingSymbols,
-	findUnexampled,
-	findUnlisted,
-	isExternalLink,
-	parseManifest,
-	resolveLink,
-} from '@orkestrel/guide'
-import { readFileSync } from 'node:fs'
-import { createRecorder, requireValue } from '@orkestrel/test'
-import { readInventory } from '@orkestrel/test/server'
 import type {
 	CheckboxField,
 	ConfirmField,
@@ -35,45 +16,9 @@ import type {
 	PasswordField,
 	TextField,
 } from '@src/core'
-import {
-	auditSchema,
-	appliesRule,
-	cloneChoices,
-	cloneFormField,
-	cloneFormSchema,
-	cloneValue,
-	computeDefaults,
-	createForm,
-	EMAIL_PATTERN,
-	evaluateField,
-	evaluateForm,
-	extractChanges,
-	extractGroups,
-	Form,
-	formatMessage,
-	isFieldChoice,
-	isFieldControl,
-	isFieldError,
-	isFieldRule,
-	isFieldValue,
-	isFormError,
-	isFormField,
-	isFormGroup,
-	isFormSchema,
-	isFormStatus,
-	isFormValues,
-	LIST_LIMIT,
-	matchesAnswer,
-	matchesField,
-	matchesValue,
-	matchesValues,
-	parseForm,
-	parseValue,
-	parseValues,
-	PATTERN_LIMIT,
-	serializeForm,
-	STRING_LIMIT,
-} from '@src/core'
+import { GuideCommand } from '@orkestrel/guide/server'
+import { readInventory } from '@orkestrel/test/server'
+import { createVitest } from 'vitest/node'
 
 /** Every fence language this package's guides are allowed to use. */
 const FENCE_LANGUAGES = Object.freeze(['ts'])
@@ -81,9 +26,11 @@ const FENCE_LANGUAGES = Object.freeze(['ts'])
 const EXAMPLE_LANGUAGE = 'ts'
 /** The one guide this package sources, whose tagline the README pitch equals. */
 const GUIDE_SPEC = 'guides/form.md'
+/** The package identity that binds its manifest, module map, and README pitch. */
+const PACKAGE_NAME = '@orkestrel/form'
 /** Each import specifier this package's own guides may resolve against. */
 const MODULES = Object.freeze({
-	'@orkestrel/form': 'src/core',
+	[PACKAGE_NAME]: 'src/core',
 	'@src/core': 'src/core',
 })
 /**
@@ -99,834 +46,787 @@ const MODULES = Object.freeze({
  */
 const INTERNAL: readonly string[] = Object.freeze([])
 
-/** Root-level files these checks read. `readInventory` walks directories only. */
-const ROOT_FILES = Object.freeze(['AGENTS.md', 'README.md'])
+await new GuideCommand({
+	root: new URL('../', import.meta.url),
+	patterns: ['src/**/*.ts', 'tests/**/*.ts', 'guides/*.md', '*.md', 'package.json'],
+	modules: MODULES,
+	languages: FENCE_LANGUAGES,
+	language: EXAMPLE_LANGUAGE,
+	reader: readInventory,
+	runner: createVitest,
+}).execute(async ({ files, report, rows }) => {
+	const { isRecord, parseJSON } = await import('@orkestrel/contract')
+	const {
+		computeSymbolKey,
+		createGuide,
+		createSourceManager,
+		extractFenceImports,
+		findMissing,
+		findMissingSymbols,
+	} = await import('@orkestrel/guide')
+	const { createRecorder, requireValue } = await import('@orkestrel/test')
+	const barrel = await import('@src/core')
+	const {
+		auditSchema,
+		appliesRule,
+		cloneChoices,
+		cloneFormField,
+		cloneFormSchema,
+		cloneValue,
+		computeDefaults,
+		createForm,
+		EMAIL_PATTERN,
+		evaluateField,
+		evaluateForm,
+		extractChanges,
+		extractGroups,
+		Form,
+		formatMessage,
+		isFieldChoice,
+		isFieldControl,
+		isFieldError,
+		isFieldRule,
+		isFieldValue,
+		isFormError,
+		isFormField,
+		isFormGroup,
+		isFormSchema,
+		isFormStatus,
+		isFormValues,
+		LIST_LIMIT,
+		matchesAnswer,
+		matchesField,
+		matchesValue,
+		matchesValues,
+		parseForm,
+		parseValue,
+		parseValues,
+		PATTERN_LIMIT,
+		serializeForm,
+		STRING_LIMIT,
+	} = barrel
+	const { describe, expect, it } = await import('vitest')
+	const manifest = parseJSON(requireValue(files['package.json'], 'Missing inventory: package.json'))
+	if (!isRecord(manifest)) throw new Error('Invalid package manifest: package.json')
+	const sources = createSourceManager({ files, modules: MODULES })
+	const readme = createGuide(requireValue(files['README.md'], 'Missing file: README.md'))
 
-const root = new URL('../', import.meta.url)
-const files: Record<string, string> = {
-	...readInventory(root, ['src', 'guides', 'tests'], { extensions: ['.ts', '.md'] }),
-}
-for (const name of ROOT_FILES) files[name] = readFileSync(new URL(name, root), 'utf8')
-const manifest = parseManifest(
-	requireValue(files['guides/README.md'], 'Missing file: guides/README.md'),
-	'guides',
-)
-const sources = createSourceManager({ files, modules: MODULES })
-const own = requireValue(
-	manifest.find((entry) => entry.spec === GUIDE_SPEC),
-	`Missing manifest row: ${GUIDE_SPEC}`,
-)
-const readme = createGuide(requireValue(files['README.md'], 'Missing file: README.md'))
-
-it('imports only real exports in every root README ```ts fence', () => {
-	const fences = readme.fences().filter((fence) => fence.language === EXAMPLE_LANGUAGE)
-	for (const fence of fences) {
-		for (const { specifier, names } of extractFenceImports(fence.code)) {
-			const imported = sources.source(specifier)
-			if (imported === undefined) continue
-			const surface = imported.surface().map((symbol) => symbol.name)
-			expect(findMissing(names, surface)).toEqual([])
-		}
-	}
-})
-
-it('manifest lists at least one guide', () => {
-	expect(manifest.length).toBeGreaterThan(0)
-})
-
-// The example half of the equality case is silent over an empty population: with no
-// title on both sides `findDrift` compares no pair and the case passes on the summaries
-// alone. This pins the population this repository's own guide contributes, so removing
-// every `@example` title reddens the suite instead of quietly retiring half the gate.
-// The failure names both title sets, because a pin reporting only its own emptiness
-// leaves the reader to work out which side dropped the title.
-it('pairs at least one example title across the guide and the source', () => {
-	const guide = createGuide(requireValue(files[GUIDE_SPEC], `Missing file: ${GUIDE_SPEC}`))
-	const source = createSource({ files, module: own.source })
-	const declared = source
-		.examples()
-		.map((example) => example.title)
-		.filter((title) => title !== undefined)
-	const titled = new Set(declared)
-	const headings: string[] = []
-	const paired: string[] = []
-	for (const fence of guide.fences()) {
-		if (fence.title === undefined) continue
-		headings.push(fence.title)
-		if (titled.has(fence.title)) paired.push(fence.title)
-	}
-	const unpaired =
-		paired.length > 0
-			? []
-			: [
-					`${GUIDE_SPEC} pairs: guide ${JSON.stringify(headings)} source ${JSON.stringify(declared)}`,
-				]
-	expect(unpaired).toEqual([])
-})
-
-// The README's pitch and the guide's tagline are one text, each read as the blockquote
-// under its file's H1. `README.md` is outside the concept index, so the reader is
-// applied to it directly rather than through a manifest row. Each side is guarded
-// against `undefined` first, so a file that lost its blockquote reports that rather
-// than reporting two absences as agreement.
-it('opens the README with the guide tagline', () => {
-	const pitch = createGuide(requireValue(files['README.md'], 'Missing file: README.md')).tagline()
-	const tagline = createGuide(
-		requireValue(files[GUIDE_SPEC], `Missing file: ${GUIDE_SPEC}`),
-	).tagline()
-
-	expect(pitch).not.toBeUndefined()
-	expect(tagline).not.toBeUndefined()
-	expect(pitch).toBe(tagline)
-})
-
-for (const entry of manifest) {
-	const guide = createGuide(requireValue(files[entry.spec], `Missing file: ${entry.spec}`))
-	const source = createSource({ files, module: entry.source })
-
-	describe(`${entry.concept}`, () => {
-		it('uses only listed fence languages', () => {
-			expect(findUnlisted(guide.fences(), FENCE_LANGUAGES)).toEqual([])
-		})
-
-		it('extracts a non-empty documented surface', () => {
-			expect(guide.surface().length).toBeGreaterThan(0)
-		})
-		it('re-exports every direct declaration that is not named internal', () => {
-			const stranded = findMissingSymbols(source.exports(), source.surface())
-			expect(stranded.filter((key) => !INTERNAL.includes(key))).toEqual([])
-		})
-		it('names no symbol internal that the barrel already exports', () => {
-			const stranded = findMissingSymbols(source.exports(), source.surface())
-			expect(INTERNAL.filter((key) => !stranded.includes(key))).toEqual([])
-		})
-		it('re-exports only direct declarations', () => {
-			expect(findMissingSymbols(source.surface(), source.exports())).toEqual([])
-		})
-		it('documents every barrel export', () => {
-			expect(findMissingSymbols(source.surface(), guide.surface())).toEqual([])
-		})
-		it('documents only barrel exports', () => {
-			expect(findMissingSymbols(guide.surface(), source.surface())).toEqual([])
-		})
-
-		it('exposes no hidden module-scope declarations', () => {
-			expect(source.hidden().map(computeSymbolKey)).toEqual([])
-		})
-
-		for (const group of guide.methods()) {
-			const members = source.methods(group.interface).map((method) => method.name)
-			const documented = group.methods.map((method) => method.name)
-			const entity = group.interface.replace(/Interface$/, '')
-			describe(`${group.interface}`, () => {
-				it('documents at least one method', () => {
-					expect(group.methods.length).toBeGreaterThan(0)
-				})
-				it('documents every interface method', () => {
-					expect(findMissing(members, documented)).toEqual([])
-				})
-				it('documents no phantom method', () => {
-					expect(findMissing(documented, members)).toEqual([])
-				})
-				it(`${entity} exposes no undocumented method`, () => {
-					const extra =
-						entity === group.interface
-							? []
-							: findMissing(
-									source.methods(entity).map((method) => method.name),
-									documented,
-								)
-					expect(extra).toEqual([])
-				})
-			})
-		}
-
-		// The equality gate: a `Summary` cell against its export's description paragraph, a
-		// titled fence against the `@example` of that title. `findDrift` owns the comparison
-		// and names both sides; converge the two sides with `npm run docs`, never by
-		// weakening this assertion. `findDrift` pairs an example only where a title is
-		// present on both sides, so an untitled `@example` block is outside this case. Each
-		// collected line is the spec, the key, and each side's text or `absent` — the same
-		// worklist `npm run docs` prints, so a failure here is read the way that command's
-		// output is.
-		it('keeps every compared summary and example equal to its source', () => {
-			const disagreeing: string[] = []
-			for (const drift of findDrift(guide, source)) {
-				const left = drift.guide === undefined ? 'absent' : JSON.stringify(drift.guide)
-				const right = drift.source === undefined ? 'absent' : JSON.stringify(drift.source)
-				disagreeing.push(`${entry.spec} ${drift.key}: guide ${left} source ${right}`)
+	it('imports only real exports in every root README ```ts fence', () => {
+		const fences = readme.fences().filter((fence) => fence.language === EXAMPLE_LANGUAGE)
+		for (const fence of fences) {
+			for (const { specifier, names } of extractFenceImports(fence.code)) {
+				const imported = sources.source(specifier)
+				if (imported === undefined) continue
+				const surface = imported.surface().map((symbol) => symbol.name)
+				expect(findMissing(names, surface)).toEqual([])
 			}
-			expect(disagreeing).toEqual([])
-		})
+		}
+	})
 
-		it('documents an example for every Surface function', () => {
-			const fences = guide
-				.fences()
-				.filter((fence) => fence.language === EXAMPLE_LANGUAGE)
-				.map((fence) => fence.code)
-			const names = guide
-				.surface()
-				.filter((symbol) => symbol.keyword === 'function')
-				.map((symbol) => symbol.name)
-			expect(
-				findUnexampled(
-					names,
-					fences,
-					source.examples().map((example) => example.name),
-				),
-			).toEqual([])
-		})
+	it('manifest lists at least one guide', () => {
+		expect(report.input).toEqual([])
+		expect(rows.length).toBeGreaterThan(0)
+		expect(rows.map((row) => row.entry.spec)).toContain(GUIDE_SPEC)
+	})
 
-		for (const group of guide.methods()) {
-			const entity = group.interface.replace(/Interface$/, '')
-			const documented = group.methods.map((method) => method.name)
-			const examples =
-				entity === group.interface
-					? source.examples(group.interface).map((example) => example.name)
-					: source
-							.examples(group.interface)
-							.map((example) => example.name)
-							.concat(source.examples(entity).map((example) => example.name))
-			describe(`${group.interface} examples`, () => {
-				it('documents an example for every method', () => {
-					const fences = guide
-						.fences()
-						.filter((fence) => fence.language === EXAMPLE_LANGUAGE)
-						.map((fence) => fence.code)
-					expect(findUnexampled(documented, fences, examples)).toEqual([])
-				})
+	// The example comparison is silent over an empty title population. This assertion pins
+	// the title intersection contributed by this package's own guide and source.
+	it('pairs at least one example title across the guide and the source', () => {
+		expect(report.examples.titles.filter((finding) => finding.spec === GUIDE_SPEC)).toEqual([])
+	})
+
+	// The manifest identity prevents a wrong package name from silently selecting no guide
+	// and suppressing the README pitch comparison.
+	it('opens the README with the guide tagline', () => {
+		expect(manifest.name).toBe(PACKAGE_NAME)
+		expect(report.pitch).toEqual([])
+	})
+
+	for (const { entry, guide, source } of rows) {
+		describe(`${entry.concept}`, () => {
+			it('uses only listed fence languages', () => {
+				expect(report.fences.filter((finding) => finding.spec === entry.spec)).toEqual([])
 			})
-		}
 
-		it('imports only real exports in every ```ts fence', () => {
-			const fences = guide.fences().filter((fence) => fence.language === EXAMPLE_LANGUAGE)
-			for (const fence of fences) {
-				for (const { specifier, names } of extractFenceImports(fence.code)) {
-					const imported = sources.source(specifier)
-					if (imported === undefined) continue
-					const surface = imported.surface().map((symbol) => symbol.name)
-					expect(findMissing(names, surface)).toEqual([])
-				}
-			}
+			it('extracts a non-empty documented surface', () => {
+				expect(guide.surface().length).toBeGreaterThan(0)
+			})
+			it('re-exports every direct declaration that is not named internal', () => {
+				const stranded = findMissingSymbols(source.exports(), source.surface())
+				expect(stranded.filter((key) => !INTERNAL.includes(key))).toEqual([])
+			})
+			it('names no symbol internal that the barrel already exports', () => {
+				const stranded = findMissingSymbols(source.exports(), source.surface())
+				expect(INTERNAL.filter((key) => !stranded.includes(key))).toEqual([])
+			})
+			it('re-exports only direct declarations', () => {
+				expect(findMissingSymbols(source.surface(), source.exports())).toEqual([])
+			})
+			it('documents every barrel export', () => {
+				expect(findMissingSymbols(source.surface(), guide.surface())).toEqual([])
+			})
+			it('documents only barrel exports', () => {
+				expect(findMissingSymbols(guide.surface(), source.surface())).toEqual([])
+			})
+
+			it('exposes no hidden module-scope declarations', () => {
+				expect(source.hidden().map(computeSymbolKey)).toEqual([])
+			})
+
+			it('documents a populated method group', () => {
+				expect(report.sections.filter((finding) => finding.spec === entry.spec)).toEqual([])
+			})
+
+			it('keeps behavioral interfaces and implementing classes in parity', () => {
+				expect(report.methods.filter((finding) => finding.spec === entry.spec)).toEqual([])
+			})
+
+			// The equality gate: a `Summary` cell against its export's description paragraph, a
+			// titled fence against the `@example` of that title. The shared report owns the
+			// comparison and names both sides; converge through the native entry, never by
+			// weakening this assertion. `findDrift` pairs an example only where a title is
+			// present on both sides, so an untitled `@example` block is outside this case. Each
+			// collected line is the spec, the key, and each side's text or `absent` — the same
+			// worklist the native entry prints. Select source authority with `--to guide`, or
+			// guide authority with `--to source`.
+			it('keeps every compared summary and example equal to its source', () => {
+				expect(report.drift.filter((finding) => finding.spec === entry.spec)).toEqual([])
+			})
+
+			it('documents an example for every Surface function', () => {
+				expect(report.examples.fences.filter((finding) => finding.spec === entry.spec)).toEqual([])
+				expect(report.examples.functions.filter((finding) => finding.spec === entry.spec)).toEqual(
+					[],
+				)
+			})
+
+			it('documents an example for every method', () => {
+				expect(report.examples.methods.filter((finding) => finding.spec === entry.spec)).toEqual([])
+			})
+
+			it('imports only real exports in every ```ts fence', () => {
+				expect(report.imports.filter((finding) => finding.spec === entry.spec)).toEqual([])
+			})
+
+			it('resolves every relative link', () => {
+				expect(report.links.filter((finding) => finding.spec === entry.spec)).toEqual([])
+			})
+			it('links only to test files that exist', () => {
+				expect(report.tests.filter((finding) => finding.spec === entry.spec)).toEqual([])
+			})
 		})
+	}
 
-		it('resolves every relative link', () => {
-			const broken = guide
-				.links()
-				.filter((href) => !isExternalLink(href))
-				.map((href) => resolveLink(entry.spec, href))
-				.filter((path) => !source.exists(path))
-			expect(broken).toEqual([])
-		})
-		it('links only to test files that exist', () => {
-			const missing = guide
-				.tests()
-				.map((href) => resolveLink(entry.spec, href))
-				.filter((path) => !source.exists(path))
-			expect(missing).toEqual([])
-		})
-	})
-}
-
-// Each following block transcribes one flagship fence of `guides/form.md` and asserts the
-// values that fence's comments claim. A fence documenting a value the code contradicts
-// fails here; the earlier name resolution would pass it.
-describe('form.md fences', () => {
-	it('settles the Surface opening example', async () => {
-		const form = createForm({
-			label: 'Sign up',
-			fields: [
-				{ control: 'text', name: 'email', label: 'Email', rule: { required: true, email: true } },
-				{
-					control: 'confirm',
-					name: 'terms',
-					label: 'I accept the terms',
-					rule: { required: true },
-				},
-			],
-		})
-
-		form.fill({ email: 'ada@example.com', terms: true })
-		expect(form.submit()).toStrictEqual({
-			success: true,
-			value: { email: 'ada@example.com', terms: true },
-		})
-		await expect(form.answer).resolves.toStrictEqual({ email: 'ada@example.com', terms: true })
-	})
-
-	it('keeps meta out of evaluation and verbatim on the wire', () => {
-		const schema: FormSchema = {
-			fields: [{ control: 'text', name: 'email', meta: { icon: 'mail', order: 2 } }],
-		}
-
-		expect(evaluateForm(schema, {})).toStrictEqual([])
-
-		const wire = JSON.stringify(serializeForm(schema))
-		expect(wire).toBe(
-			'{"fields":[{"control":"text","name":"email","meta":{"icon":"mail","order":2}}]}',
-		)
-		expect(JSON.stringify(parseForm(JSON.parse(wire)))).toBe(wire)
-
-		expect(isFormGroup({ name: 'account', label: 'Account', meta: {} })).toBe(false)
-		expect(isFieldChoice({ value: 'a', label: 'A', meta: {} })).toBe(false)
-
-		const form = createForm(schema)
-		expect(form.field('email')?.meta).toEqual({ icon: 'mail', order: 2 })
-		expect(Object.getPrototypeOf(form.field('email')?.meta ?? {})).toBeNull()
-	})
-
-	it('evaluates the numeric rules and resolves their messages', () => {
-		const volume: NumberField = {
-			control: 'number',
-			name: 'volume',
-			rule: { minimum: 0, maximum: 11, step: 1 },
-		}
-
-		expect(evaluateField(volume, 12, {})).toStrictEqual([
-			{ field: 'volume', message: 'Must be at most 11', rule: 'maximum' },
-		])
-		expect(evaluateField(volume, 0.5, {})).toStrictEqual([
-			{ field: 'volume', message: 'Must be a multiple of 1', rule: 'step' },
-		])
-
-		expect(formatMessage('minimum', 8)).toBe('Must be at least 8')
-		expect(formatMessage('required', undefined, { required: 'We need this one' })).toBe(
-			'We need this one',
-		)
-	})
-
-	it('counts every value but undefined and whitespace as an answer', () => {
-		expect(matchesAnswer(undefined)).toBe(false)
-		expect(matchesAnswer('')).toBe(false)
-		expect(matchesAnswer('   ')).toBe(false)
-		expect(matchesAnswer('ada')).toBe(true)
-		expect(matchesAnswer([])).toBe(true)
-		expect(matchesAnswer(false)).toBe(true)
-		expect(matchesAnswer(0)).toBe(true)
-
-		const form = createForm({
-			fields: [{ control: 'text', name: 'email', rule: { required: true } }],
-		})
-
-		const raw = '   '
-		form.fill('email', matchesAnswer(raw) ? raw : undefined)
-
-		expect(form.values.email).toBeUndefined()
-		expect(form.errors.length).toBe(1)
-	})
-
-	it('runs the custom seam against the rest of the form', () => {
-		const matches: FieldValidator = (value, values) =>
-			value === values.password ? true : 'Both passwords must match'
-		const again: PasswordField = { control: 'password', name: 'again', rule: { custom: matches } }
-
-		expect(evaluateField(again, 'hunter3', { password: 'hunter2' })).toStrictEqual([
-			{ field: 'again', message: 'Both passwords must match' },
-		])
-	})
-
-	it('runs a custom rule on an absent value for a required-when check', () => {
-		const whenBusiness: FieldValidator = (value, values) =>
-			values.account === 'business' && value === undefined ? 'A VAT number is required' : true
-		const vat: TextField = { control: 'text', name: 'vat', rule: { custom: whenBusiness } }
-
-		expect(evaluateField(vat, undefined, { account: 'business' })).toStrictEqual([
-			{ field: 'vat', message: 'A VAT number is required' },
-		])
-		expect(evaluateField(vat, undefined, { account: 'personal' })).toStrictEqual([])
-	})
-
-	it('closes an address list with a custom rule and the exported email pattern', () => {
-		const addresses: FieldValidator = (value) =>
-			typeof value !== 'string' ||
-			value
-				.split(',')
-				.map((entry) => entry.trim())
-				.every((entry) => EMAIL_PATTERN.test(entry))
-				? true
-				: 'Every address must be valid'
-		const to: TextField = { control: 'text', name: 'to', rule: { custom: addresses } }
-
-		expect(evaluateField(to, 'ada@example.com, grace@example.com', {})).toStrictEqual([])
-		expect(evaluateField(to, 'ada@example.com, nope', {})).toStrictEqual([
-			{ field: 'to', message: 'Every address must be valid' },
-		])
-	})
-
-	it('refuses a pattern longer than the limit at both gates', () => {
-		const long: TextField = {
-			control: 'text',
-			name: 'code',
-			rule: { pattern: 'a'.repeat(PATTERN_LIMIT + 1) },
-		}
-
-		expect(PATTERN_LIMIT).toBe(256)
-		expect(auditSchema({ fields: [long] })).toStrictEqual([
-			'Field "code" has a pattern longer than 256',
-		])
-		expect(evaluateField(long, 'aaa', {})).toStrictEqual([
-			{ field: 'code', message: 'Must match the required format', rule: 'pattern' },
-		])
-	})
-
-	it('refuses an over-budget name, string, list, and value at their own doors', () => {
-		expect(auditSchema({ fields: [{ control: 'text', name: 'n'.repeat(129) }] })).toStrictEqual([
-			'Schema contains a name longer than 128',
-		])
-		expect(
-			auditSchema({
-				fields: [{ control: 'text', name: 'a', label: 'x'.repeat(STRING_LIMIT + 1) }],
-			}),
-		).toStrictEqual(['Schema contains a string longer than 65536'])
-
-		const topics: CheckboxField = {
-			control: 'checkbox',
-			name: 't',
-			choices: [{ value: 'a', label: 'A' }],
-		}
-
-		expect(
-			matchesField(
-				topics,
-				Array.from({ length: LIST_LIMIT + 1 }, () => 'a'),
-			),
-		).toBe(false)
-		expect(matchesField({ control: 'text', name: 'a' }, 'x'.repeat(STRING_LIMIT + 1))).toBe(false)
-	})
-
-	it('reports the audit diagnostics the guide quotes', () => {
-		expect(
-			auditSchema({
+	// Each following block transcribes one flagship fence of `guides/form.md` and asserts the
+	// values that fence's comments claim. A fence documenting a value the code contradicts
+	// fails here; the earlier name resolution would pass it.
+	describe('form.md fences', () => {
+		it('settles the Surface opening example', async () => {
+			const form = createForm({
+				label: 'Sign up',
 				fields: [
-					{ control: 'text', name: 'a' },
-					{ control: 'text', name: 'a' },
-				],
-			}),
-		).toStrictEqual(['Field "a" is declared more than once'])
-		expect(
-			auditSchema({ fields: [{ control: 'number', name: 'n', rule: { minimum: '3' } }] }),
-		).toStrictEqual(['Field "n" has a string minimum on number'])
-		expect(
-			auditSchema({
-				fields: [
+					{ control: 'text', name: 'email', label: 'Email', rule: { required: true, email: true } },
 					{
-						control: 'select',
-						name: 'plan',
-						disabled: true,
-						choices: [{ value: 'legacy', label: 'Legacy', disabled: true }],
+						control: 'confirm',
+						name: 'terms',
+						label: 'I accept the terms',
 						rule: { required: true },
 					},
 				],
-			}),
-		).toStrictEqual(['Field "plan" is required but offers no enabled choice'])
-		expect(
-			auditSchema({ fields: [{ control: 'text', name: 'code', rule: { maximum: -1 } }] }),
-		).toStrictEqual(['Field "code" has a negative maximum on text'])
-		expect(auditSchema({ fields: [{ control: 'text', name: 'email' }] })).toStrictEqual([])
-	})
+			})
 
-	it('accepts a lexically valid date that no calendar has', () => {
-		const when: DateField = { control: 'date', name: 'when' }
-
-		expect(matchesField(when, '2026-02-31')).toBe(true)
-		expect(matchesField(when, '2026-13-01')).toBe(false)
-	})
-
-	it('walks the lifecycle example', () => {
-		const form = createForm({
-			fields: [
-				{ control: 'text', name: 'email', rule: { required: true, email: true } },
-				{ control: 'confirm', name: 'terms', rule: { required: true } },
-			],
+			form.fill({ email: 'ada@example.com', terms: true })
+			expect(form.submit()).toStrictEqual({
+				success: true,
+				value: { email: 'ada@example.com', terms: true },
+			})
+			await expect(form.answer).resolves.toStrictEqual({ email: 'ada@example.com', terms: true })
 		})
 
-		expect(form.errors.length).toBe(2)
-		expect(form.valid).toBe(false)
-		expect(form.dirty).toBe(false)
-		expect(form.status).toBe('editing')
+		it('keeps meta out of evaluation and verbatim on the wire', () => {
+			const schema: FormSchema = {
+				fields: [{ control: 'text', name: 'email', meta: { icon: 'mail', order: 2 } }],
+			}
 
-		expect(form.field('email')?.control).toBe('text')
-		form.touch('email')
-		expect(form.touched.has('email')).toBe(true)
+			expect(evaluateForm(schema, {})).toStrictEqual([])
 
-		form.fill('email', 'ada@example.com')
-		expect(form.dirty).toBe(true)
-		expect(form.errors.length).toBe(1)
+			const wire = JSON.stringify(serializeForm(schema))
+			expect(wire).toBe(
+				'{"fields":[{"control":"text","name":"email","meta":{"icon":"mail","order":2}}]}',
+			)
+			expect(JSON.stringify(parseForm(JSON.parse(wire)))).toBe(wire)
 
-		expect(form.submit().success).toBe(false)
-		expect(Array.from(form.touched)).toStrictEqual(['email', 'terms'])
+			expect(isFormGroup({ name: 'account', label: 'Account', meta: {} })).toBe(false)
+			expect(isFieldChoice({ value: 'a', label: 'A', meta: {} })).toBe(false)
 
-		form.fill('terms', true)
-		expect(form.submit()).toStrictEqual({
-			success: true,
-			value: { email: 'ada@example.com', terms: true },
-		})
-		expect(form.status).toBe('settled')
-	})
-
-	it('keeps a disabled field out of evaluation and out of the submit', () => {
-		const form = createForm({
-			fields: [
-				{ control: 'text', name: 'email', rule: { required: true } },
-				{
-					control: 'text',
-					name: 'legacy',
-					disabled: true,
-					default: 'kept',
-					rule: { required: true, email: true },
-				},
-			],
+			const form = createForm(schema)
+			expect(form.field('email')?.meta).toEqual({ icon: 'mail', order: 2 })
+			expect(Object.getPrototypeOf(form.field('email')?.meta ?? {})).toBeNull()
 		})
 
-		expect(form.values).toStrictEqual({ legacy: 'kept' })
-		expect(form.errors.length).toBe(1)
+		it('evaluates the numeric rules and resolves their messages', () => {
+			const volume: NumberField = {
+				control: 'number',
+				name: 'volume',
+				rule: { minimum: 0, maximum: 11, step: 1 },
+			}
 
-		form.fill('email', 'ada@example.com')
-		expect(form.submit()).toStrictEqual({ success: true, value: { email: 'ada@example.com' } })
-	})
+			expect(evaluateField(volume, 12, {})).toStrictEqual([
+				{ field: 'volume', message: 'Must be at most 11', rule: 'maximum' },
+			])
+			expect(evaluateField(volume, 0.5, {})).toStrictEqual([
+				{ field: 'volume', message: 'Must be a multiple of 1', rule: 'step' },
+			])
 
-	it('expands a group in one line and takes it out of the form', () => {
-		const form = createForm({
-			groups: [{ name: 'billing', label: 'Billing' }],
-			fields: [
-				{ control: 'text', name: 'card', group: 'billing', rule: { required: true } },
-				{ control: 'text', name: 'zip', group: 'billing', rule: { required: true } },
-				{ control: 'text', name: 'email', rule: { required: true } },
-			],
+			expect(formatMessage('minimum', 8)).toBe('Must be at least 8')
+			expect(formatMessage('required', undefined, { required: 'We need this one' })).toBe(
+				'We need this one',
+			)
 		})
 
-		const billing = form.schema.fields.filter((field) => field.group === 'billing')
-		form.disable(billing.map((field) => field.name))
+		it('counts every value but undefined and whitespace as an answer', () => {
+			expect(matchesAnswer(undefined)).toBe(false)
+			expect(matchesAnswer('')).toBe(false)
+			expect(matchesAnswer('   ')).toBe(false)
+			expect(matchesAnswer('ada')).toBe(true)
+			expect(matchesAnswer([])).toBe(true)
+			expect(matchesAnswer(false)).toBe(true)
+			expect(matchesAnswer(0)).toBe(true)
 
-		expect(Array.from(form.disabled)).toStrictEqual(['card', 'zip'])
-		expect(form.errors.length).toBe(1)
-	})
+			const form = createForm({
+				fields: [{ control: 'text', name: 'email', rule: { required: true } }],
+			})
 
-	it('announces only real moves, and announces a clear reset with clear alone', () => {
-		const moved: string[] = []
+			const raw = '   '
+			form.fill('email', matchesAnswer(raw) ? raw : undefined)
 
-		const form = createForm(
-			{
+			expect(form.values.email).toBeUndefined()
+			expect(form.errors.length).toBe(1)
+		})
+
+		it('runs the custom seam against the rest of the form', () => {
+			const matches: FieldValidator = (value, values) =>
+				value === values.password ? true : 'Both passwords must match'
+			const again: PasswordField = { control: 'password', name: 'again', rule: { custom: matches } }
+
+			expect(evaluateField(again, 'hunter3', { password: 'hunter2' })).toStrictEqual([
+				{ field: 'again', message: 'Both passwords must match' },
+			])
+		})
+
+		it('runs a custom rule on an absent value for a required-when check', () => {
+			const whenBusiness: FieldValidator = (value, values) =>
+				values.account === 'business' && value === undefined ? 'A VAT number is required' : true
+			const vat: TextField = { control: 'text', name: 'vat', rule: { custom: whenBusiness } }
+
+			expect(evaluateField(vat, undefined, { account: 'business' })).toStrictEqual([
+				{ field: 'vat', message: 'A VAT number is required' },
+			])
+			expect(evaluateField(vat, undefined, { account: 'personal' })).toStrictEqual([])
+		})
+
+		it('closes an address list with a custom rule and the exported email pattern', () => {
+			const addresses: FieldValidator = (value) =>
+				typeof value !== 'string' ||
+				value
+					.split(',')
+					.map((entry) => entry.trim())
+					.every((entry) => EMAIL_PATTERN.test(entry))
+					? true
+					: 'Every address must be valid'
+			const to: TextField = { control: 'text', name: 'to', rule: { custom: addresses } }
+
+			expect(evaluateField(to, 'ada@example.com, grace@example.com', {})).toStrictEqual([])
+			expect(evaluateField(to, 'ada@example.com, nope', {})).toStrictEqual([
+				{ field: 'to', message: 'Every address must be valid' },
+			])
+		})
+
+		it('refuses a pattern longer than the limit at both gates', () => {
+			const long: TextField = {
+				control: 'text',
+				name: 'code',
+				rule: { pattern: 'a'.repeat(PATTERN_LIMIT + 1) },
+			}
+
+			expect(PATTERN_LIMIT).toBe(256)
+			expect(auditSchema({ fields: [long] })).toStrictEqual([
+				'Field "code" has a pattern longer than 256',
+			])
+			expect(evaluateField(long, 'aaa', {})).toStrictEqual([
+				{ field: 'code', message: 'Must match the required format', rule: 'pattern' },
+			])
+		})
+
+		it('refuses an over-budget name, string, list, and value at their own doors', () => {
+			expect(auditSchema({ fields: [{ control: 'text', name: 'n'.repeat(129) }] })).toStrictEqual([
+				'Schema contains a name longer than 128',
+			])
+			expect(
+				auditSchema({
+					fields: [{ control: 'text', name: 'a', label: 'x'.repeat(STRING_LIMIT + 1) }],
+				}),
+			).toStrictEqual(['Schema contains a string longer than 65536'])
+
+			const topics: CheckboxField = {
+				control: 'checkbox',
+				name: 't',
+				choices: [{ value: 'a', label: 'A' }],
+			}
+
+			expect(
+				matchesField(
+					topics,
+					Array.from({ length: LIST_LIMIT + 1 }, () => 'a'),
+				),
+			).toBe(false)
+			expect(matchesField({ control: 'text', name: 'a' }, 'x'.repeat(STRING_LIMIT + 1))).toBe(false)
+		})
+
+		it('reports the audit diagnostics the guide quotes', () => {
+			expect(
+				auditSchema({
+					fields: [
+						{ control: 'text', name: 'a' },
+						{ control: 'text', name: 'a' },
+					],
+				}),
+			).toStrictEqual(['Field "a" is declared more than once'])
+			expect(
+				auditSchema({ fields: [{ control: 'number', name: 'n', rule: { minimum: '3' } }] }),
+			).toStrictEqual(['Field "n" has a string minimum on number'])
+			expect(
+				auditSchema({
+					fields: [
+						{
+							control: 'select',
+							name: 'plan',
+							disabled: true,
+							choices: [{ value: 'legacy', label: 'Legacy', disabled: true }],
+							rule: { required: true },
+						},
+					],
+				}),
+			).toStrictEqual(['Field "plan" is required but offers no enabled choice'])
+			expect(
+				auditSchema({ fields: [{ control: 'text', name: 'code', rule: { maximum: -1 } }] }),
+			).toStrictEqual(['Field "code" has a negative maximum on text'])
+			expect(auditSchema({ fields: [{ control: 'text', name: 'email' }] })).toStrictEqual([])
+		})
+
+		it('accepts a lexically valid date that no calendar has', () => {
+			const when: DateField = { control: 'date', name: 'when' }
+
+			expect(matchesField(when, '2026-02-31')).toBe(true)
+			expect(matchesField(when, '2026-13-01')).toBe(false)
+		})
+
+		it('walks the lifecycle example', () => {
+			const form = createForm({
+				fields: [
+					{ control: 'text', name: 'email', rule: { required: true, email: true } },
+					{ control: 'confirm', name: 'terms', rule: { required: true } },
+				],
+			})
+
+			expect(form.errors.length).toBe(2)
+			expect(form.valid).toBe(false)
+			expect(form.dirty).toBe(false)
+			expect(form.status).toBe('editing')
+
+			expect(form.field('email')?.control).toBe('text')
+			form.touch('email')
+			expect(form.touched.has('email')).toBe(true)
+
+			form.fill('email', 'ada@example.com')
+			expect(form.dirty).toBe(true)
+			expect(form.errors.length).toBe(1)
+
+			expect(form.submit().success).toBe(false)
+			expect(Array.from(form.touched)).toStrictEqual(['email', 'terms'])
+
+			form.fill('terms', true)
+			expect(form.submit()).toStrictEqual({
+				success: true,
+				value: { email: 'ada@example.com', terms: true },
+			})
+			expect(form.status).toBe('settled')
+		})
+
+		it('keeps a disabled field out of evaluation and out of the submit', () => {
+			const form = createForm({
 				fields: [
 					{ control: 'text', name: 'email', rule: { required: true } },
-					{ control: 'text', name: 'nickname', rule: { required: true } },
-					{ control: 'text', name: 'legacy', disabled: true, default: 'kept' },
+					{
+						control: 'text',
+						name: 'legacy',
+						disabled: true,
+						default: 'kept',
+						rule: { required: true, email: true },
+					},
 				],
-			},
-			{
-				on: {
-					fill: (name) => moved.push(`fill ${name}`),
-					disable: (name) => moved.push(`disable ${name}`),
-					enable: (name) => moved.push(`enable ${name}`),
-				},
-			},
-		)
+			})
 
-		expect(Array.from(form.disabled)).toStrictEqual(['legacy'])
-		expect(form.errors.length).toBe(2)
+			expect(form.values).toStrictEqual({ legacy: 'kept' })
+			expect(form.errors.length).toBe(1)
 
-		form.disable('nickname')
-		expect(Array.from(form.disabled)).toStrictEqual(['nickname', 'legacy'])
-		expect(form.errors.length).toBe(1)
-		form.disable('nickname')
-
-		form.fill('email', 'ada@example.com')
-		form.invalidate('email', 'That address is already registered')
-		expect(form.errors).toStrictEqual([
-			{ field: 'email', message: 'That address is already registered' },
-		])
-
-		form.disable('email')
-		expect(form.errors).toStrictEqual([])
-		form.enable('email')
-		expect(form.errors).toStrictEqual([
-			{ field: 'email', message: 'That address is already registered' },
-		])
-
-		expect(() => form.disable(['email', 'nope'])).toThrow(
-			expect.objectContaining({ code: 'FIELD' }),
-		)
-		expect(form.disabled.has('email')).toBe(false)
-
-		form.clear()
-		expect(Array.from(form.disabled)).toStrictEqual(['legacy'])
-		expect(form.values).toStrictEqual({ legacy: 'kept' })
-		expect(moved).toStrictEqual(['disable nickname', 'fill email', 'disable email', 'enable email'])
-	})
-
-	it('replaces the schema declarations with the supplied disabled set', () => {
-		const schema: FormSchema = {
-			fields: [
-				{ control: 'text', name: 'card', rule: { required: true } },
-				{ control: 'text', name: 'email', rule: { required: true } },
-			],
-		}
-
-		expect(evaluateForm(schema, {}, { disabled: new Set(['card']) })).toStrictEqual([
-			{ field: 'email', message: 'This field is required', rule: 'required' },
-		])
-		expect(
-			evaluateForm(
-				schema,
-				{},
-				{
-					messages: { required: 'Needed' },
-					disabled: new Set(['card']),
-				},
-			),
-		).toStrictEqual([{ field: 'email', message: 'Needed', rule: 'required' }])
-	})
-
-	it('invalidates from outside and clears back to the defaults', () => {
-		const form = createForm({
-			fields: [
-				{ control: 'text', name: 'email', rule: { required: true, email: true } },
-				{
-					control: 'select',
-					name: 'plan',
-					choices: [{ value: 'free', label: 'Free' }],
-					default: 'free',
-				},
-			],
+			form.fill('email', 'ada@example.com')
+			expect(form.submit()).toStrictEqual({ success: true, value: { email: 'ada@example.com' } })
 		})
 
-		expect(form.baseline).toStrictEqual({ plan: 'free' })
+		it('expands a group in one line and takes it out of the form', () => {
+			const form = createForm({
+				groups: [{ name: 'billing', label: 'Billing' }],
+				fields: [
+					{ control: 'text', name: 'card', group: 'billing', rule: { required: true } },
+					{ control: 'text', name: 'zip', group: 'billing', rule: { required: true } },
+					{ control: 'text', name: 'email', rule: { required: true } },
+				],
+			})
 
-		form.fill('email', 'ada@example.com')
-		expect(form.valid).toBe(true)
-		expect(form.dirty).toBe(true)
-		expect(Array.from(extractChanges(form.values, form.baseline))).toStrictEqual(['email'])
+			const billing = form.schema.fields.filter((field) => field.group === 'billing')
+			form.disable(billing.map((field) => field.name))
 
-		form.invalidate('email', 'That address is already registered')
-		expect(form.errors).toStrictEqual([
-			{ field: 'email', message: 'That address is already registered' },
-		])
-		expect(form.valid).toBe(false)
-
-		form.fill('email', 'grace@example.com')
-		expect(form.errors).toStrictEqual([])
-
-		form.clear()
-		expect(form.values).toStrictEqual({ plan: 'free' })
-		expect(form.dirty).toBe(false)
-	})
-
-	it('resolves a parked answer from another task', async () => {
-		const form = createForm({
-			fields: [{ control: 'text', name: 'name', rule: { required: true } }],
-		})
-		const parked = form.answer
-
-		form.fill('name', 'Ada')
-		form.submit()
-
-		await expect(parked).resolves.toStrictEqual({ name: 'Ada' })
-	})
-
-	it('rejects a parked answer when the form is abandoned', async () => {
-		const abandoned = createForm({ fields: [{ control: 'text', name: 'name' }] })
-		const pending = abandoned.answer
-
-		abandoned.destroy()
-		expect(abandoned.status).toBe('abandoned')
-
-		await expect(pending).rejects.toSatisfy(
-			(error: unknown) => isFormError(error) && error.code === 'ABANDONED',
-		)
-	})
-
-	it('keeps a refused attempt open and commits only on the submit that passes', () => {
-		const form = createForm({
-			fields: [{ control: 'text', name: 'email', rule: { required: true, email: true } }],
+			expect(Array.from(form.disabled)).toStrictEqual(['card', 'zip'])
+			expect(form.errors.length).toBe(1)
 		})
 
-		expect(form.submit().success).toBe(false)
-		expect(form.status).toBe('editing')
-		expect(Array.from(form.touched)).toStrictEqual(['email'])
+		it('announces only real moves, and announces a clear reset with clear alone', () => {
+			const moved: string[] = []
 
-		form.fill('email', 'ada@example.com')
-
-		const refused = form.values.email === 'ada@example.com'
-		if (refused) form.invalidate('email', 'That address is already registered')
-		expect(form.valid).toBe(false)
-		expect(form.status).toBe('editing')
-
-		form.fill('email', 'grace@example.com')
-		expect(form.submit().success).toBe(true)
-		expect(form.status).toBe('settled')
-	})
-
-	it('announces the events the guide lists, in order', () => {
-		const seen: string[] = []
-		const errors = createRecorder<[unknown, string]>()
-
-		const form = createForm(
-			{ fields: [{ control: 'text', name: 'email', rule: { required: true } }] },
-			{
-				on: {
-					fill: (name, value) => seen.push(`fill ${name} ${String(value)}`),
-					validate: (found) => seen.push(`validate ${found.length}`),
-					submit: () => seen.push('submit'),
-				},
-				error: errors.handler,
-			},
-		)
-
-		form.emitter.on('abandon', () => seen.push('abandon'))
-
-		form.fill('email', 'ada@example.com')
-		form.submit()
-
-		expect(seen).toStrictEqual(['fill email ada@example.com', 'validate 0', 'submit'])
-		expect(errors.count).toBe(0)
-	})
-
-	it('round-trips a schema through JSON exactly', () => {
-		const schema: FormSchema = {
-			name: 'signup',
-			label: 'Sign up',
-			groups: [{ name: 'account', label: 'Account' }],
-			fields: [
-				{ control: 'text', name: 'email', group: 'account', rule: { required: true, email: true } },
+			const form = createForm(
 				{
-					control: 'checkbox',
-					name: 'topics',
-					choices: [{ value: 'a', label: 'A' }],
-					default: ['a'],
-				},
-			],
-		}
-
-		const wire = JSON.stringify(serializeForm(schema))
-		const received = parseForm(JSON.parse(wire))
-
-		expect(JSON.stringify(serializeForm(requireValue(received)))).toBe(wire)
-		expect(parseForm({ fields: 'not a list' })).toBeUndefined()
-	})
-
-	it('coerces exactly the two wire shapes it documents', () => {
-		const age: NumberField = { control: 'number', name: 'age' }
-		const ok: ConfirmField = { control: 'confirm', name: 'ok' }
-		const schema: FormSchema = { fields: [age, ok] }
-
-		expect(parseValue(age, '42')).toBe(42)
-		expect(parseValue(age, 'abc')).toBeUndefined()
-		expect(parseValue(ok, 'true')).toBe(true)
-		expect(parseValue(ok, 'yes')).toBeUndefined()
-
-		expect(parseValues(schema, { age: '42', ok: 'true' })).toStrictEqual({ age: 42, ok: true })
-		expect(parseValues(schema, { nope: '1' })).toBeUndefined()
-	})
-
-	it('answers the guard example the way the guide prints it', () => {
-		expect(isFieldControl('datetime')).toBe(true)
-		expect(isFieldControl('radio')).toBe(false)
-		expect(isFormStatus('settled')).toBe(true)
-		expect(isFieldValue(['a', 'b'])).toBe(true)
-		expect(isFieldValue({})).toBe(false)
-		expect(isFieldChoice({ value: 'a', label: 'A' })).toBe(true)
-		expect(isFieldChoice({ value: 'a', label: 'A', colour: 'red' })).toBe(false)
-		expect(isFieldRule({ required: true, minimum: 8 })).toBe(true)
-		expect(isFormField({ control: 'text', name: 'email' })).toBe(true)
-		expect(isFormField({ control: 'text' })).toBe(false)
-		expect(isFormGroup({ name: 'account', label: 'Account' })).toBe(true)
-		expect(isFormSchema({ fields: [{ control: 'text', name: 'a' }] })).toBe(true)
-		expect(isFormValues({ a: 'b', c: 2 })).toBe(true)
-		expect(isFieldError({ field: 'a', message: 'b', rule: 'required' })).toBe(true)
-	})
-
-	it('owns every clone the guide shows', () => {
-		const topics = ['releases']
-		const owned = cloneValue(topics)
-
-		expect(owned === topics).toBe(false)
-		expect(Object.isFrozen(owned)).toBe(true)
-		expect(cloneValue('text')).toBe('text')
-
-		expect(Object.isFrozen(cloneChoices([{ value: 'a', label: 'A' }]))).toBe(true)
-		expect(Object.isFrozen(cloneFormField({ control: 'text', name: 'email' }))).toBe(true)
-		expect(Object.isFrozen(cloneFormSchema({ fields: [{ control: 'text', name: 'email' }] }))).toBe(
-			true,
-		)
-	})
-
-	it('derives the same answers without a form', () => {
-		const schema: FormSchema = {
-			groups: [
-				{ name: 'account', label: 'Account' },
-				{ name: 'unused', label: 'Unused' },
-			],
-			fields: [
-				{ control: 'text', name: 'email', group: 'account', default: 'ada@example.com' },
-				{ control: 'confirm', name: 'terms', default: false },
-				{ control: 'password', name: 'secret' },
-			],
-		}
-
-		expect(computeDefaults(schema)).toStrictEqual({ email: 'ada@example.com', terms: false })
-		expect(extractGroups(schema)).toStrictEqual([{ name: 'account', label: 'Account' }])
-		expect(evaluateForm(schema, {})).toStrictEqual([])
-		expect(appliesRule('number', 'step')).toBe(true)
-		expect(matchesValue(['a'], ['a'])).toBe(true)
-		expect(matchesValues({ topics: ['a'] }, { topics: ['a'] })).toBe(true)
-	})
-
-	it('codes each refusal the errors table names', () => {
-		expect(() => createForm({ fields: [{ control: 'text', name: '' }] })).toThrow(
-			expect.objectContaining({ code: 'SCHEMA' }),
-		)
-
-		const form = createForm({ fields: [{ control: 'number', name: 'age' }] })
-
-		expect(() => form.fill('nope', 1)).toThrow(expect.objectContaining({ code: 'FIELD' }))
-		expect(() => form.fill('age', 'twelve')).toThrow(expect.objectContaining({ code: 'CONTROL' }))
-		expect(form.values).toStrictEqual({})
-	})
-
-	it('constructs the class the same way the factory does', () => {
-		const form = new Form({
-			fields: [{ control: 'text', name: 'email', rule: { required: true } }],
-		})
-
-		form.fill('email', 'ada@example.com')
-		expect(form.submit().success).toBe(true)
-	})
-})
-
-describe('README.md Usage fence', () => {
-	it('executes its three value claims', async () => {
-		const form = createForm({
-			label: 'Sign up',
-			fields: [
-				{ control: 'text', name: 'email', label: 'Email', rule: { required: true, email: true } },
-				{
-					control: 'password',
-					name: 'secret',
-					label: 'Password',
-					rule: { required: true, minimum: 12 },
+					fields: [
+						{ control: 'text', name: 'email', rule: { required: true } },
+						{ control: 'text', name: 'nickname', rule: { required: true } },
+						{ control: 'text', name: 'legacy', disabled: true, default: 'kept' },
+					],
 				},
 				{
-					control: 'confirm',
-					name: 'terms',
-					label: 'I accept the terms',
-					rule: { required: true },
+					on: {
+						fill: (name) => moved.push(`fill ${name}`),
+						disable: (name) => moved.push(`disable ${name}`),
+						enable: (name) => moved.push(`enable ${name}`),
+					},
 				},
-			],
+			)
+
+			expect(Array.from(form.disabled)).toStrictEqual(['legacy'])
+			expect(form.errors.length).toBe(2)
+
+			form.disable('nickname')
+			expect(Array.from(form.disabled)).toStrictEqual(['nickname', 'legacy'])
+			expect(form.errors.length).toBe(1)
+			form.disable('nickname')
+
+			form.fill('email', 'ada@example.com')
+			form.invalidate('email', 'That address is already registered')
+			expect(form.errors).toStrictEqual([
+				{ field: 'email', message: 'That address is already registered' },
+			])
+
+			form.disable('email')
+			expect(form.errors).toStrictEqual([])
+			form.enable('email')
+			expect(form.errors).toStrictEqual([
+				{ field: 'email', message: 'That address is already registered' },
+			])
+
+			expect(() => form.disable(['email', 'nope'])).toThrow(
+				expect.objectContaining({ code: 'FIELD' }),
+			)
+			expect(form.disabled.has('email')).toBe(false)
+
+			form.clear()
+			expect(Array.from(form.disabled)).toStrictEqual(['legacy'])
+			expect(form.values).toStrictEqual({ legacy: 'kept' })
+			expect(moved).toStrictEqual([
+				'disable nickname',
+				'fill email',
+				'disable email',
+				'enable email',
+			])
 		})
-		const parked = form.answer
 
-		form.fill({ email: 'ada@example.com', secret: 'correct horse battery' })
-		expect(form.errors).toStrictEqual([
-			{ field: 'terms', message: 'This field is required', rule: 'required' },
-		])
+		it('replaces the schema declarations with the supplied disabled set', () => {
+			const schema: FormSchema = {
+				fields: [
+					{ control: 'text', name: 'card', rule: { required: true } },
+					{ control: 'text', name: 'email', rule: { required: true } },
+				],
+			}
 
-		form.fill('terms', true)
-		const result = form.submit()
-		expect(result.success).toBe(true)
-		await expect(parked).resolves.toStrictEqual({
-			email: 'ada@example.com',
-			secret: 'correct horse battery',
-			terms: true,
+			expect(evaluateForm(schema, {}, { disabled: new Set(['card']) })).toStrictEqual([
+				{ field: 'email', message: 'This field is required', rule: 'required' },
+			])
+			expect(
+				evaluateForm(
+					schema,
+					{},
+					{
+						messages: { required: 'Needed' },
+						disabled: new Set(['card']),
+					},
+				),
+			).toStrictEqual([{ field: 'email', message: 'Needed', rule: 'required' }])
+		})
+
+		it('invalidates from outside and clears back to the defaults', () => {
+			const form = createForm({
+				fields: [
+					{ control: 'text', name: 'email', rule: { required: true, email: true } },
+					{
+						control: 'select',
+						name: 'plan',
+						choices: [{ value: 'free', label: 'Free' }],
+						default: 'free',
+					},
+				],
+			})
+
+			expect(form.baseline).toStrictEqual({ plan: 'free' })
+
+			form.fill('email', 'ada@example.com')
+			expect(form.valid).toBe(true)
+			expect(form.dirty).toBe(true)
+			expect(Array.from(extractChanges(form.values, form.baseline))).toStrictEqual(['email'])
+
+			form.invalidate('email', 'That address is already registered')
+			expect(form.errors).toStrictEqual([
+				{ field: 'email', message: 'That address is already registered' },
+			])
+			expect(form.valid).toBe(false)
+
+			form.fill('email', 'grace@example.com')
+			expect(form.errors).toStrictEqual([])
+
+			form.clear()
+			expect(form.values).toStrictEqual({ plan: 'free' })
+			expect(form.dirty).toBe(false)
+		})
+
+		it('resolves a parked answer from another task', async () => {
+			const form = createForm({
+				fields: [{ control: 'text', name: 'name', rule: { required: true } }],
+			})
+			const parked = form.answer
+
+			form.fill('name', 'Ada')
+			form.submit()
+
+			await expect(parked).resolves.toStrictEqual({ name: 'Ada' })
+		})
+
+		it('rejects a parked answer when the form is abandoned', async () => {
+			const abandoned = createForm({ fields: [{ control: 'text', name: 'name' }] })
+			const pending = abandoned.answer
+
+			abandoned.destroy()
+			expect(abandoned.status).toBe('abandoned')
+
+			await expect(pending).rejects.toSatisfy(
+				(error: unknown) => isFormError(error) && error.code === 'ABANDONED',
+			)
+		})
+
+		it('keeps a refused attempt open and commits only on the submit that passes', () => {
+			const form = createForm({
+				fields: [{ control: 'text', name: 'email', rule: { required: true, email: true } }],
+			})
+
+			expect(form.submit().success).toBe(false)
+			expect(form.status).toBe('editing')
+			expect(Array.from(form.touched)).toStrictEqual(['email'])
+
+			form.fill('email', 'ada@example.com')
+
+			const refused = form.values.email === 'ada@example.com'
+			if (refused) form.invalidate('email', 'That address is already registered')
+			expect(form.valid).toBe(false)
+			expect(form.status).toBe('editing')
+
+			form.fill('email', 'grace@example.com')
+			expect(form.submit().success).toBe(true)
+			expect(form.status).toBe('settled')
+		})
+
+		it('announces the events the guide lists, in order', () => {
+			const seen: string[] = []
+			const errors = createRecorder<[unknown, string]>()
+
+			const form = createForm(
+				{ fields: [{ control: 'text', name: 'email', rule: { required: true } }] },
+				{
+					on: {
+						fill: (name, value) => seen.push(`fill ${name} ${String(value)}`),
+						validate: (found) => seen.push(`validate ${found.length}`),
+						submit: () => seen.push('submit'),
+					},
+					error: errors.handler,
+				},
+			)
+
+			form.emitter.on('abandon', () => seen.push('abandon'))
+
+			form.fill('email', 'ada@example.com')
+			form.submit()
+
+			expect(seen).toStrictEqual(['fill email ada@example.com', 'validate 0', 'submit'])
+			expect(errors.count).toBe(0)
+		})
+
+		it('round-trips a schema through JSON exactly', () => {
+			const schema: FormSchema = {
+				name: 'signup',
+				label: 'Sign up',
+				groups: [{ name: 'account', label: 'Account' }],
+				fields: [
+					{
+						control: 'text',
+						name: 'email',
+						group: 'account',
+						rule: { required: true, email: true },
+					},
+					{
+						control: 'checkbox',
+						name: 'topics',
+						choices: [{ value: 'a', label: 'A' }],
+						default: ['a'],
+					},
+				],
+			}
+
+			const wire = JSON.stringify(serializeForm(schema))
+			const received = parseForm(JSON.parse(wire))
+
+			expect(JSON.stringify(serializeForm(requireValue(received)))).toBe(wire)
+			expect(parseForm({ fields: 'not a list' })).toBeUndefined()
+		})
+
+		it('coerces exactly the two wire shapes it documents', () => {
+			const age: NumberField = { control: 'number', name: 'age' }
+			const ok: ConfirmField = { control: 'confirm', name: 'ok' }
+			const schema: FormSchema = { fields: [age, ok] }
+
+			expect(parseValue(age, '42')).toBe(42)
+			expect(parseValue(age, 'abc')).toBeUndefined()
+			expect(parseValue(ok, 'true')).toBe(true)
+			expect(parseValue(ok, 'yes')).toBeUndefined()
+
+			expect(parseValues(schema, { age: '42', ok: 'true' })).toStrictEqual({ age: 42, ok: true })
+			expect(parseValues(schema, { nope: '1' })).toBeUndefined()
+		})
+
+		it('answers the guard example the way the guide prints it', () => {
+			expect(isFieldControl('datetime')).toBe(true)
+			expect(isFieldControl('radio')).toBe(false)
+			expect(isFormStatus('settled')).toBe(true)
+			expect(isFieldValue(['a', 'b'])).toBe(true)
+			expect(isFieldValue({})).toBe(false)
+			expect(isFieldChoice({ value: 'a', label: 'A' })).toBe(true)
+			expect(isFieldChoice({ value: 'a', label: 'A', colour: 'red' })).toBe(false)
+			expect(isFieldRule({ required: true, minimum: 8 })).toBe(true)
+			expect(isFormField({ control: 'text', name: 'email' })).toBe(true)
+			expect(isFormField({ control: 'text' })).toBe(false)
+			expect(isFormGroup({ name: 'account', label: 'Account' })).toBe(true)
+			expect(isFormSchema({ fields: [{ control: 'text', name: 'a' }] })).toBe(true)
+			expect(isFormValues({ a: 'b', c: 2 })).toBe(true)
+			expect(isFieldError({ field: 'a', message: 'b', rule: 'required' })).toBe(true)
+		})
+
+		it('owns every clone the guide shows', () => {
+			const topics = ['releases']
+			const owned = cloneValue(topics)
+
+			expect(owned === topics).toBe(false)
+			expect(Object.isFrozen(owned)).toBe(true)
+			expect(cloneValue('text')).toBe('text')
+
+			expect(Object.isFrozen(cloneChoices([{ value: 'a', label: 'A' }]))).toBe(true)
+			expect(Object.isFrozen(cloneFormField({ control: 'text', name: 'email' }))).toBe(true)
+			expect(
+				Object.isFrozen(cloneFormSchema({ fields: [{ control: 'text', name: 'email' }] })),
+			).toBe(true)
+		})
+
+		it('derives the same answers without a form', () => {
+			const schema: FormSchema = {
+				groups: [
+					{ name: 'account', label: 'Account' },
+					{ name: 'unused', label: 'Unused' },
+				],
+				fields: [
+					{ control: 'text', name: 'email', group: 'account', default: 'ada@example.com' },
+					{ control: 'confirm', name: 'terms', default: false },
+					{ control: 'password', name: 'secret' },
+				],
+			}
+
+			expect(computeDefaults(schema)).toStrictEqual({ email: 'ada@example.com', terms: false })
+			expect(extractGroups(schema)).toStrictEqual([{ name: 'account', label: 'Account' }])
+			expect(evaluateForm(schema, {})).toStrictEqual([])
+			expect(appliesRule('number', 'step')).toBe(true)
+			expect(matchesValue(['a'], ['a'])).toBe(true)
+			expect(matchesValues({ topics: ['a'] }, { topics: ['a'] })).toBe(true)
+		})
+
+		it('codes each refusal the errors table names', () => {
+			expect(() => createForm({ fields: [{ control: 'text', name: '' }] })).toThrow(
+				expect.objectContaining({ code: 'SCHEMA' }),
+			)
+
+			const form = createForm({ fields: [{ control: 'number', name: 'age' }] })
+
+			expect(() => form.fill('nope', 1)).toThrow(expect.objectContaining({ code: 'FIELD' }))
+			expect(() => form.fill('age', 'twelve')).toThrow(expect.objectContaining({ code: 'CONTROL' }))
+			expect(form.values).toStrictEqual({})
+		})
+
+		it('constructs the class the same way the factory does', () => {
+			const form = new Form({
+				fields: [{ control: 'text', name: 'email', rule: { required: true } }],
+			})
+
+			form.fill('email', 'ada@example.com')
+			expect(form.submit().success).toBe(true)
+		})
+	})
+
+	describe('README.md Usage fence', () => {
+		it('executes its three value claims', async () => {
+			const form = createForm({
+				label: 'Sign up',
+				fields: [
+					{ control: 'text', name: 'email', label: 'Email', rule: { required: true, email: true } },
+					{
+						control: 'password',
+						name: 'secret',
+						label: 'Password',
+						rule: { required: true, minimum: 12 },
+					},
+					{
+						control: 'confirm',
+						name: 'terms',
+						label: 'I accept the terms',
+						rule: { required: true },
+					},
+				],
+			})
+			const parked = form.answer
+
+			form.fill({ email: 'ada@example.com', secret: 'correct horse battery' })
+			expect(form.errors).toStrictEqual([
+				{ field: 'terms', message: 'This field is required', rule: 'required' },
+			])
+
+			form.fill('terms', true)
+			const result = form.submit()
+			expect(result.success).toBe(true)
+			await expect(parked).resolves.toStrictEqual({
+				email: 'ada@example.com',
+				secret: 'correct horse battery',
+				terms: true,
+			})
 		})
 	})
 })
