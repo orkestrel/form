@@ -1,4 +1,5 @@
 import type { JSONRecord } from '@orkestrel/contract'
+import { isInstance } from '@orkestrel/contract'
 import type { FormErrorCode } from './types.js'
 
 /**
@@ -43,5 +44,5 @@ export class FormError extends Error {
  * @returns True if the value is a {@link FormError} instance; false otherwise.
  */
 export function isFormError(input: unknown): input is FormError {
-	return input instanceof FormError
+	return isInstance(input, FormError)
 }
