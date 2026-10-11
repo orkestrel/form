@@ -2,7 +2,7 @@
 
 > The environment-agnostic form document: a `FormSchema` stating what is asked, a `Form` holding
 > the answers given against it, declarative `FieldRule` data stating what those answers must
-> satisfy, and one submit that settles the form exactly once.
+> satisfy, acknowledged editing, and a terminal submit that settles the form exactly once.
 
 A terminal prompt and a browser form ask the same thing in different places, so this package ships
 what they share and neither renders nor reads input itself. Its `answer` promise is the parking seam

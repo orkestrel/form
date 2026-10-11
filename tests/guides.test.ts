@@ -221,6 +221,44 @@ await new GuideCommand({
 	// values that fence's comments claim. A fence documenting a value the code contradicts
 	// fails here; the earlier name resolution would pass it.
 	describe('form.md fences', () => {
+		it('acknowledges an earlier snapshot while later edits remain dirty', () => {
+			const form = createForm({ fields: [{ control: 'text', name: 'name', default: 'Opening' }] })
+			form.fill('name', 'A')
+			const first = form.prepare()
+			expect(first.success).toBe(true)
+			if (!first.success) throw new Error('Expected a prepared submission')
+			form.fill('name', 'B')
+			expect(form.accept(first.value)).toBe(true)
+			expect(form.baseline.name).toBe('A')
+			expect(form.values.name).toBe('B')
+			expect(form.dirty).toBe(true)
+			expect(first.value.signal.aborted).toBe(false)
+			const second = form.prepare()
+			expect(second.success).toBe(true)
+			if (!second.success) throw new Error('Expected a second submission')
+			expect(form.accept(second.value)).toBe(true)
+			expect(form.dirty).toBe(false)
+			expect(form.status).toBe('editing')
+		})
+
+		it('reports a save refusal, aborts it and accepts a retry', () => {
+			const form = createForm({ fields: [{ control: 'text', name: 'email' }] })
+			form.fill('email', 'ada@example.com')
+			const prepared = form.prepare()
+			expect(prepared.success).toBe(true)
+			if (!prepared.success) throw new Error('Expected a prepared submission')
+			expect(form.invalidate('email', 'Already registered', prepared.value)).toBe(true)
+			expect(form.abort(prepared.value)).toBe(true)
+			expect(prepared.value.signal.aborted).toBe(true)
+			expect(form.accept(prepared.value)).toBe(false)
+			form.fill('email', 'grace@example.com')
+			const retry = form.prepare()
+			expect(retry.success).toBe(true)
+			if (!retry.success) throw new Error('Expected a retry submission')
+			expect(form.accept(retry.value)).toBe(true)
+			expect(form.dirty).toBe(false)
+		})
+
 		it('settles the Surface opening example', async () => {
 			const form = createForm({
 				label: 'Sign up',

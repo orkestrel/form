@@ -76,9 +76,10 @@ export type FormStatus = 'editing' | 'settled' | 'abandoned'
  * @remarks
  * `SCHEMA` rejects a malformed schema. `FIELD` names a field the schema does not declare.
  * `CONTROL` reports a value the field's control cannot hold. `SETTLED` and `ABANDONED`
- * refuse a write to a form that has already ended.
+ * refuse a write to a form that has already ended. `PENDING` refuses a preparation or terminal
+ * submit while preparation or acknowledgement is pending, or a preparation interrupted by clear.
  */
-export type FormErrorCode = 'SCHEMA' | 'FIELD' | 'CONTROL' | 'SETTLED' | 'ABANDONED'
+export type FormErrorCode = 'SCHEMA' | 'FIELD' | 'CONTROL' | 'SETTLED' | 'ABANDONED' | 'PENDING'
 
 /**
  * Represents one option a `select` or `checkbox` field offers.
@@ -384,6 +385,21 @@ export interface FormSchema {
 export type FormResult = Result<FormValues, readonly FieldError[]>
 
 /**
+ * Carries an owned, frozen answer snapshot and the signal for its pending acknowledgement.
+ *
+ * @remarks
+ * Only the producing form accepts this object's identity. Copying its members cannot create a
+ * receipt. The values and their lists are frozen; the native signal remains usable by transports.
+ */
+export interface FormSubmission {
+	readonly values: FormValues
+	readonly signal: AbortSignal
+}
+
+/** Reports a prepared submission, or every error that prevented its preparation. */
+export type FormPreparationResult = Result<FormSubmission, readonly FieldError[]>
+
+/**
  * Lists everything a form announces.
  *
  * @remarks
@@ -391,14 +407,19 @@ export type FormResult = Result<FormValues, readonly FieldError[]>
  * being cleared. `validate` carries the errors a check produced, empty when it found none.
  * `disable` and `enable` each carry one field, and fire once per field whose state actually
  * moved, in the order the schema declares them. `submit` fires only on a submit that passed.
- * `clear` and `abandon` are signals.
+ * `touch` announces the first visit since clear. `prepare`, `accept`, and `abort` carry the receipt
+ * after their state is committed. `clear` and `abandon` are signals.
  */
 export type FormEventMap = {
 	readonly fill: readonly [name: string, value: FieldValue | undefined]
+	readonly touch: readonly [name: string]
 	readonly validate: readonly [errors: readonly FieldError[]]
 	readonly disable: readonly [name: string]
 	readonly enable: readonly [name: string]
 	readonly submit: readonly [values: FormValues]
+	readonly prepare: readonly [submission: FormSubmission]
+	readonly accept: readonly [submission: FormSubmission]
+	readonly abort: readonly [submission: FormSubmission]
 	readonly clear: readonly []
 	readonly abandon: readonly []
 }
@@ -456,7 +477,7 @@ export interface FormOptions {
  *
  * @remarks
  * `valid` is true when the last completed evaluation found no error, and `dirty` is true once
- * an answer differs from the one the form opened with. Both are derived, never stored.
+ * an answer differs from its acknowledged baseline. Both are derived, never stored.
  *
  * `touched` holds the fields somebody has visited, which is what lets a renderer withhold an
  * error until the person has had their turn at it.
@@ -476,13 +497,15 @@ export interface FormInterface {
 	/** Reports the answers the form holds. */
 	readonly values: FormValues
 	/**
-	 * Holds the answers the form opened with: the schema's defaults, overlaid with any seeded values.
+	 * Holds the acknowledged answers, initially the schema's defaults overlaid with seeded values.
 	 *
 	 * @remarks
-	 * It is fixed when the form opens and never moves again, so it is what `dirty` measures
-	 * against and what {@link FormInterface.clear} returns to.
+	 * Acceptance advances only the enabled fields captured by the submission, including absence.
+	 * It is what `dirty` measures against and what {@link FormInterface.clear} returns to.
 	 */
 	readonly baseline: FormValues
+	/** Holds the submission awaiting acknowledgement, or `undefined` when none is pending. */
+	readonly pending: FormSubmission | undefined
 	/** Holds every error the last check produced. */
 	readonly errors: readonly FieldError[]
 	/** Lists the names of the fields somebody has visited. */
@@ -500,7 +523,7 @@ export interface FormInterface {
 	readonly status: FormStatus
 	/** Reports whether the last completed evaluation found no error. */
 	readonly valid: boolean
-	/** Reports whether any answer has moved since the form opened. */
+	/** Reports whether any answer differs from its acknowledged baseline. */
 	readonly dirty: boolean
 	/**
 	 * Holds the answers after the form settles.
@@ -542,11 +565,16 @@ export interface FormInterface {
 	 * @remarks
 	 * One field holds one external failure, so a second call replaces the first, and the failure
 	 * lasts until that field is filled again or the form is cleared.
+	 * A receipt admits only a captured enabled field whose fill revision still matches. Stale,
+	 * foreign, copied, consumed, and teardown-invalidated receipts return `false`; unknown fields
+	 * still throw `FIELD`.
 	 *
 	 * @param name - The field's name.
 	 * @param message - What to tell the person.
+	 * @param submission - The active receipt to check against the field's captured revision.
+	 * @returns True if the failure was applied; false if the receipt or field revision is stale.
 	 */
-	invalidate(name: string, message: string): void
+	invalidate(name: string, message: string, submission?: FormSubmission): boolean
 	/**
 	 * Takes one field, several fields, or every field out of the form.
 	 *
@@ -604,7 +632,29 @@ export interface FormInterface {
 	 */
 	submit(): FormResult
 	/**
-	 * Returns every answer to the ones the form opened with.
+	 * Prepares an owned enabled snapshot for acknowledgement while leaving the form editable.
+	 *
+	 * @returns The submission on success, or the errors that prevented preparation.
+	 * @throws A {@link FormError} coded `PENDING` for an overlapping preparation or pending receipt,
+	 *   or when clear interrupts preparation; terminal forms retain their terminal refusals.
+	 */
+	prepare(): FormPreparationResult
+	/**
+	 * Adopts the active submission's captured answers into the baseline without changing live state.
+	 *
+	 * @param submission - The receipt returned by preparation.
+	 * @returns True if this active receipt was accepted; false otherwise, including after teardown.
+	 */
+	accept(submission: FormSubmission): boolean
+	/**
+	 * Consumes the active submission and aborts its signal without changing answers or baseline.
+	 *
+	 * @param submission - The receipt returned by preparation.
+	 * @returns True if this active receipt was aborted; false otherwise, including after teardown.
+	 */
+	abort(submission: FormSubmission): boolean
+	/**
+	 * Returns every answer to its acknowledged baseline and aborts pending acknowledgement.
 	 *
 	 * @remarks
 	 * Those answers are {@link FormInterface.baseline}. The runtime disabled overlay resets with

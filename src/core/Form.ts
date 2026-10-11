@@ -7,9 +7,11 @@ import type {
 	FormField,
 	FormInterface,
 	FormOptions,
+	FormPreparationResult,
 	FormResult,
 	FormSchema,
 	FormStatus,
+	FormSubmission,
 	FormValues,
 } from './types.js'
 import { attempt, isString } from '@orkestrel/contract'
@@ -57,11 +59,16 @@ export class Form implements FormInterface {
 	readonly #emitter: Emitter<FormEventMap>
 	readonly #schema: FormSchema
 	readonly #messages: Readonly<Partial<Record<FieldRuleName, string>>> | undefined
-	readonly #baseline: FormValues
+	#baseline: FormValues
 	readonly #values: Record<string, FieldValue>
 	readonly #touched = new Set<string>()
 	readonly #disabled = new Map<string, boolean>()
 	readonly #invalidations = new Map<string, string>()
+	readonly #revisions = new Map<string, number>()
+	#captured: ReadonlyMap<string, number> = new Map()
+	#submission: FormSubmission | undefined
+	#controller: AbortController | undefined
+	#preparing: AbortController | undefined
 	readonly #resolvers = Promise.withResolvers<FormValues>()
 	#errors: readonly FieldError[] = Object.freeze([])
 	#status: FormStatus = 'editing'
@@ -156,9 +163,14 @@ export class Form implements FormInterface {
 		return Object.freeze(values)
 	}
 
-	/** Holds the answers the form opened with. */
+	/** Holds the acknowledged answers, initially the schema's defaults overlaid with seeded values. */
 	get baseline(): FormValues {
 		return this.#baseline
+	}
+
+	/** Holds the submission awaiting acknowledgement, or `undefined` when none is pending. */
+	get pending(): FormSubmission | undefined {
+		return this.#submission
 	}
 
 	/** Holds every error the last completed evaluation produced. */
@@ -194,7 +206,7 @@ export class Form implements FormInterface {
 		return this.#errors.length === 0
 	}
 
-	/** Reports whether any answer has moved since the form opened. */
+	/** Reports whether any answer differs from its acknowledged baseline. */
 	get dirty(): boolean {
 		return !matchesValues(this.values, this.#baseline)
 	}
@@ -265,6 +277,7 @@ export class Form implements FormInterface {
 			const moved: string[] = []
 
 			for (const [name, answer] of entries) {
+				this.#revisions.set(name, (this.#revisions.get(name) ?? 0) + 1)
 				if (this.#differs(name, answer)) moved.push(name)
 				if (answer === undefined) delete this.#values[name]
 				else {
@@ -291,7 +304,11 @@ export class Form implements FormInterface {
 	touch(name: string): void {
 		this.#gate()
 		this.#requireField(name)
-		this.#touched.add(name)
+		this.#batch(() => {
+			if (this.#touched.has(name)) return
+			this.#touched.add(name)
+			this.#emitter.emit('touch', name)
+		})
 	}
 
 	/**
@@ -299,19 +316,31 @@ export class Form implements FormInterface {
 	 *
 	 * @param name - The field's name.
 	 * @param message - What to tell the person.
+	 * @param submission - The active receipt to check against the field's captured revision.
+	 * @returns True if the failure was applied; false if the receipt or field revision is stale.
 	 * @remarks
 	 * One field holds one external failure: a second call replaces the first. The failure lasts
 	 * until that field is filled again or the form is cleared.
 	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended, and
 	 *   `FIELD` when the schema declares no such name.
 	 */
-	invalidate(name: string, message: string): void {
-		this.#gate()
+	invalidate(name: string, message: string, submission?: FormSubmission): boolean {
+		if (submission === undefined) this.#gate()
 		this.#requireField(name)
+		if (
+			submission !== undefined &&
+			(this.#pending ||
+				submission !== this.#submission ||
+				!this.#captured.has(name) ||
+				this.#captured.get(name) !== (this.#revisions.get(name) ?? 0))
+		) {
+			return false
+		}
 		this.#batch(() => {
 			this.#invalidations.set(name, message)
 			if (this.#evaluate()) this.#emitter.emit('validate', this.#errors)
 		})
+		return true
 	}
 
 	/** Takes every field out of the form. */
@@ -386,6 +415,7 @@ export class Form implements FormInterface {
 	 */
 	submit(): FormResult {
 		this.#gate()
+		this.#gatePreparation()
 
 		return this.#batch(() => {
 			const changed = this.#evaluate()
@@ -410,11 +440,15 @@ export class Form implements FormInterface {
 			if (stopped) {
 				const disabled = this.disabled
 				for (const field of this.#schema.fields) {
-					if (!disabled.has(field.name)) this.#touched.add(field.name)
+					if (!disabled.has(field.name) && !this.#touched.has(field.name)) {
+						this.#touched.add(field.name)
+						this.#emitter.emit('touch', field.name)
+					}
 				}
 			}
 
 			if (stopped) return { success: false, error: errors }
+			this.#gatePreparation()
 
 			const answers = this.#snapshot()
 			this.#status = 'settled'
@@ -426,8 +460,119 @@ export class Form implements FormInterface {
 	}
 
 	/**
-	 * Returns every answer to the ones the form opened with: the schema's defaults, overlaid with
-	 * any seeded `values`. Reset the runtime disabled state to the schema's declarations.
+	 * Prepares an owned enabled snapshot for acknowledgement while leaving the form editable.
+	 *
+	 * @returns The submission on success, or the errors that prevented preparation.
+	 * @remarks
+	 * A failed check refuses its checked errors even if an observer repairs them. A passing check
+	 * drains observer mutations through one further check. The receipt always carries that check's
+	 * snapshot, including when its notifications produce later edits. A throwing validator creates
+	 * no receipt. The pending identity is installed before `prepare` listeners run.
+	 * @throws A {@link FormError} coded `PENDING` while another preparation or receipt is pending,
+	 *   or when clear interrupts preparation; terminal forms retain their terminal refusals.
+	 */
+	prepare(): FormPreparationResult {
+		this.#gate()
+		this.#gatePreparation()
+		const controller = new AbortController()
+		this.#preparing = controller
+
+		return this.#batch(() => {
+			try {
+				let drained = false
+				while (true) {
+					const values = this.values
+					const disabled = this.disabled
+					const captured = new Map<string, number>()
+					const touched: string[] = []
+					for (const field of this.#schema.fields) {
+						if (disabled.has(field.name)) continue
+						captured.set(field.name, this.#revisions.get(field.name) ?? 0)
+						if (!this.#touched.has(field.name)) touched.push(field.name)
+						this.#touched.add(field.name)
+					}
+
+					const before = this.#evaluation
+					for (const name of touched) {
+						if (controller.signal.aborted || this.#pending) break
+						this.#emitter.emit('touch', name)
+					}
+					this.#requirePreparation(controller)
+					const errors = this.#check(values, disabled)
+					const mutated = this.#evaluation !== before
+					// A validator may itself edit. Its completed evaluation owns the live error list.
+					const changed = !mutated && this.#record(errors)
+					const evaluation = this.#evaluation
+					if (changed) this.#emitter.emit('validate', this.#errors)
+					this.#requirePreparation(controller)
+					if (errors.length > 0) return { success: false, error: errors }
+					if (!drained && (mutated || this.#evaluation !== evaluation)) {
+						drained = true
+						continue
+					}
+
+					const submission = Object.freeze({
+						values: this.#snapshot(values, disabled),
+						signal: controller.signal,
+					})
+					this.#captured = captured
+					this.#controller = controller
+					this.#submission = submission
+					this.#preparing = undefined
+					this.#emitter.emit('prepare', submission)
+					return { success: true, value: submission }
+				}
+			} finally {
+				if (this.#preparing === controller) this.#preparing = undefined
+			}
+		})
+	}
+
+	/**
+	 * Adopts the active submission's captured answers into the baseline without changing live state.
+	 *
+	 * @param submission - The receipt returned by preparation.
+	 * @returns True if this active receipt was accepted; false otherwise, including after teardown.
+	 */
+	accept(submission: FormSubmission): boolean {
+		if (this.#pending || submission !== this.#submission) return false
+		return this.#batch(() => {
+			const baseline: Record<string, FieldValue> = { ...this.#baseline }
+			for (const name of this.#captured.keys()) {
+				const value = Object.hasOwn(submission.values, name) ? submission.values[name] : undefined
+				if (value === undefined) delete baseline[name]
+				else defineEntry(baseline, name, value)
+			}
+			this.#baseline = Object.freeze(baseline)
+			this.#submission = undefined
+			this.#controller = undefined
+			this.#captured = new Map()
+			this.#emitter.emit('accept', submission)
+			return true
+		})
+	}
+
+	/**
+	 * Consumes the active submission and aborts its signal without changing answers or baseline.
+	 *
+	 * @param submission - The receipt returned by preparation.
+	 * @returns True if this active receipt was aborted; false otherwise, including after teardown.
+	 */
+	abort(submission: FormSubmission): boolean {
+		if (this.#pending || submission !== this.#submission) return false
+		this.#batch(() => {
+			const controller = this.#controller
+			this.#submission = undefined
+			this.#controller = undefined
+			this.#captured = new Map()
+			controller?.abort()
+			this.#emitter.emit('abort', submission)
+		})
+		return true
+	}
+
+	/**
+	 * Returns every answer to its acknowledged baseline and aborts pending acknowledgement.
 	 *
 	 * @throws A {@link FormError} coded `SETTLED` or `ABANDONED` when the form has ended.
 	 */
@@ -435,6 +580,12 @@ export class Form implements FormInterface {
 		this.#gate()
 
 		this.#batch(() => {
+			const submission = this.#submission
+			const controller = this.#controller
+			this.#submission = undefined
+			this.#controller = undefined
+			this.#captured = new Map()
+			this.#preparing?.abort()
 			for (const name of Object.keys(this.#values)) delete this.#values[name]
 			for (const [name, value] of Object.entries(this.#baseline)) {
 				defineEntry(this.#values, name, value)
@@ -443,8 +594,16 @@ export class Form implements FormInterface {
 			this.#touched.clear()
 			this.#disabled.clear()
 			this.#invalidations.clear()
+			this.#revisions.clear()
 
-			const changed = this.#evaluate()
+			let changed = false
+			try {
+				changed = this.#evaluate()
+			} finally {
+				// Signal listeners see the reset and can prepare a successor after the old identity.
+				controller?.abort()
+				if (submission !== undefined) this.#emitter.emit('abort', submission)
+			}
 
 			this.#emitter.emit('clear')
 			if (changed) this.#emitter.emit('validate', this.#errors)
@@ -474,6 +633,19 @@ export class Form implements FormInterface {
 		}
 		if (this.#status === 'abandoned' || this.#pending) {
 			throw new FormError('ABANDONED', 'The form was abandoned and cannot change')
+		}
+	}
+
+	#gatePreparation(): void {
+		if (this.#preparing !== undefined || this.#submission !== undefined) {
+			throw new FormError('PENDING', 'The form has a pending preparation or submission')
+		}
+	}
+
+	#requirePreparation(controller: AbortController): void {
+		this.#gate()
+		if (controller.signal.aborted) {
+			throw new FormError('PENDING', 'The preparation was interrupted by clear')
 		}
 	}
 
@@ -523,9 +695,13 @@ export class Form implements FormInterface {
 	// Recompute the whole error list and cache it, reporting whether its content moved.
 	#evaluate(): boolean {
 		const disabled = this.disabled
+		return this.#record(this.#check(this.values, disabled))
+	}
+
+	#check(values: FormValues, disabled: ReadonlySet<string>): readonly FieldError[] {
 		const options =
 			this.#messages === undefined ? { disabled } : { messages: this.#messages, disabled }
-		const errors: FieldError[] = [...evaluateForm(this.#schema, this.values, options)]
+		const errors: FieldError[] = [...evaluateForm(this.#schema, values, options)]
 
 		for (const [field, message] of this.#invalidations) {
 			if (!disabled.has(field)) {
@@ -533,8 +709,11 @@ export class Form implements FormInterface {
 			}
 		}
 
+		return Object.freeze(errors)
+	}
+
+	#record(next: readonly FieldError[]): boolean {
 		const previous = this.#errors
-		const next: readonly FieldError[] = Object.freeze(errors)
 		this.#errors = next
 
 		const changed =
@@ -567,14 +746,16 @@ export class Form implements FormInterface {
 	}
 
 	// The answers a submit hands over: every enabled field somebody has answered.
-	#snapshot(): FormValues {
+	#snapshot(
+		values: FormValues = this.#values,
+		disabled: ReadonlySet<string> = this.disabled,
+	): FormValues {
 		const answers: Record<string, FieldValue> = {}
-		const disabled = this.disabled
 
 		for (const field of this.#schema.fields) {
-			const value = Object.hasOwn(this.#values, field.name) ? this.#values[field.name] : undefined
+			const value = Object.hasOwn(values, field.name) ? values[field.name] : undefined
 			if (!disabled.has(field.name) && value !== undefined) {
-				defineEntry(answers, field.name, value)
+				defineEntry(answers, field.name, cloneValue(value))
 			}
 		}
 
@@ -593,11 +774,20 @@ export class Form implements FormInterface {
 	}
 
 	#teardown(): void {
-		if (this.#status === 'editing') {
+		const submission = this.#submission
+		const controller = this.#controller
+		this.#submission = undefined
+		this.#controller = undefined
+		this.#captured = new Map()
+		this.#preparing?.abort()
+		const abandoned = this.#status === 'editing'
+		if (abandoned) {
 			this.#status = 'abandoned'
 			this.#resolvers.reject(new FormError('ABANDONED', 'The form was destroyed before it settled'))
-			this.#emitter.emit('abandon')
 		}
+		controller?.abort()
+		if (submission !== undefined) this.#emitter.emit('abort', submission)
+		if (abandoned) this.#emitter.emit('abandon')
 
 		this.#emitter.destroy()
 	}

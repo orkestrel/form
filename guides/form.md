@@ -2,11 +2,11 @@
 
 > The environment-agnostic form document: a `FormSchema` stating what is asked, a `Form` holding
 > the answers given against it, declarative `FieldRule` data stating what those answers must
-> satisfy, and one submit that settles the form exactly once.
+> satisfy, acknowledged editing, and a terminal submit that settles the form exactly once.
 
-**A terminal prompt and a browser form are the same abstraction.** Both ask a person a set of
-questions, hold partial answers, check them against rules, and finish once. What differs is the
-host, and each host contributes the one part it owns. Parking is the server environment's
+Terminal prompts and editable forms share questions, answers, and validation. An editable form
+prepares a snapshot and accepts an acknowledgement while further edits remain possible. A terminal
+form settles through `submit`. Each host contributes the part it owns. Parking is the server environment's
 contribution: `answer` is a form whose result nobody has resolved yet, so a server can hand the
 document out, wait, and receive the answers back through the same promise a local caller awaits.
 Rendering is the browser's contribution, and it lives in the browser, not here. Nothing here
@@ -103,18 +103,20 @@ literal with a union's arms escaped as `\|`. A function row's `Shape` cell holds
 and a guard row's the type it narrows to. A class row's `Shape` cell holds the interface it
 implements, or its constructor signature where it implements none.
 
-| API             | Kind      | Shape                                                                                                                                                                         | Summary                                                                                                            |
-| --------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `Form`          | class     | `FormInterface`                                                                                                                                                               | Implements `FormInterface` exactly, over an owned schema, the answers given against it, and the errors they carry. |
-| `FormInterface` | interface | `{ emitter, schema, values, baseline, errors, touched, disabled, status, valid, dirty, answer } plus field, fill, touch, invalidate, disable, enable, submit, clear, destroy` | Declares the contract a form exposes: the state it holds and the calls that move it.                               |
-| `createForm`    | function  | `(schema: FormSchema, options?: FormOptions) => FormInterface`                                                                                                                | Opens a form against a schema.                                                                                     |
-| `FormOptions`   | interface | `{ on?, error?, values?, messages? }`                                                                                                                                         | Describes how to open a form.                                                                                      |
-| `FormStatus`    | type      | `'editing' \| 'settled' \| 'abandoned'`                                                                                                                                       | Represents where a form sits in its life.                                                                          |
-| `FormResult`    | type      | `Result<FormValues, readonly FieldError[]>`                                                                                                                                   | Reports what a submit answers with: the values, or every error that stopped them.                                  |
-| `FormEventMap`  | type      | `{ fill, validate, disable, enable, submit, clear, abandon }`                                                                                                                 | Lists everything a form announces.                                                                                 |
-| `FormError`     | class     | `new (code: FormErrorCode, message: string, context?: JSONRecord) => FormError`                                                                                               | Represents an error raised by the form domain.                                                                     |
-| `FormErrorCode` | type      | `'SCHEMA' \| 'FIELD' \| 'CONTROL' \| 'SETTLED' \| 'ABANDONED'`                                                                                                                | Names the machine-readable code a form error carries.                                                              |
-| `isFormError`   | function  | `FormError`                                                                                                                                                                   | Determines whether an unknown value is a form error.                                                               |
+| API                     | Kind      | Shape                                                                                                                                                                                                          | Summary                                                                                                            |
+| ----------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `Form`                  | class     | `FormInterface`                                                                                                                                                                                                | Implements `FormInterface` exactly, over an owned schema, the answers given against it, and the errors they carry. |
+| `FormInterface`         | interface | `{ emitter, schema, values, baseline, pending, errors, touched, disabled, status, valid, dirty, answer } plus field, fill, touch, invalidate, disable, enable, submit, prepare, accept, abort, clear, destroy` | Declares the contract a form exposes: the state it holds and the calls that move it.                               |
+| `createForm`            | function  | `(schema: FormSchema, options?: FormOptions) => FormInterface`                                                                                                                                                 | Opens a form against a schema.                                                                                     |
+| `FormOptions`           | interface | `{ on?, error?, values?, messages? }`                                                                                                                                                                          | Describes how to open a form.                                                                                      |
+| `FormStatus`            | type      | `'editing' \| 'settled' \| 'abandoned'`                                                                                                                                                                        | Represents where a form sits in its life.                                                                          |
+| `FormResult`            | type      | `Result<FormValues, readonly FieldError[]>`                                                                                                                                                                    | Reports what a submit answers with: the values, or every error that stopped them.                                  |
+| `FormSubmission`        | interface | `{ values, signal }`                                                                                                                                                                                           | Carries an owned, frozen answer snapshot and the signal for its pending acknowledgement.                           |
+| `FormPreparationResult` | type      | `Result<FormSubmission, readonly FieldError[]>`                                                                                                                                                                | Reports a prepared submission, or every error that prevented its preparation.                                      |
+| `FormEventMap`          | type      | `{ fill, touch, validate, disable, enable, submit, prepare, accept, abort, clear, abandon }`                                                                                                                   | Lists everything a form announces.                                                                                 |
+| `FormError`             | class     | `new (code: FormErrorCode, message: string, context?: JSONRecord) => FormError`                                                                                                                                | Represents an error raised by the form domain.                                                                     |
+| `FormErrorCode`         | type      | `'SCHEMA' \| 'FIELD' \| 'CONTROL' \| 'SETTLED' \| 'ABANDONED' \| 'PENDING'`                                                                                                                                    | Names the machine-readable code a form error carries.                                                              |
+| `isFormError`           | function  | `FormError`                                                                                                                                                                                                    | Determines whether an unknown value is a form error.                                                               |
 
 `FormInterface`'s readonly data members are the names in its `Shape` cell before `plus`, and they
 stay here rather than in `## Methods`; the call-signature members after `plus` are documented under
@@ -542,8 +544,10 @@ Object.getPrototypeOf(form.field('email')?.meta ?? {}) // null
 
 A renderer picks an affordance from what a field asks a person for, not from the name its control
 carries. The categories that decision is made in are the portable ones the `enterprise-bootstrap`
-skill catalogs in its `references/inputs.md` file, which every scaffold target carries at
-`.agents/skills/enterprise-bootstrap/references/inputs.md`. The category names in the
+skill catalogs in its `references/inputs.md` file. Resolve that skill through this repository's
+Scaffold pointer: `../scaffold/.agents/skills/enterprise-bootstrap/references/inputs.md` beside a
+checkout, otherwise `node_modules/@orkestrel/scaffold/dist/host/agents/skills/enterprise-bootstrap/references/inputs.md`.
+The category names in the
 table are that catalog's own, and a category name is the join key: read the row here, then open the
 section carrying that name there.
 
@@ -945,7 +949,8 @@ matchesField(when, '2026-13-01') // false — month 13 is not spelled correctly
 
 A form opens `editing`, turns `settled` on its first valid submit, and turns `abandoned` when it is
 destroyed before settling. Both end states are terminal, and every write to a form in either one is
-refused with a `FormError`. Every getter keeps answering afterwards.
+refused with a `FormError`. Callback-facing `accept`, `abort`, and receipt-aware `invalidate` return
+`false` for inactive receipts even after teardown. Every getter keeps answering afterwards.
 
 A destroy requested while a mutation batch is open records the request, refuses every subsequent
 write from that instant, and defers teardown until the outermost batch closes. The batch's own
@@ -960,7 +965,7 @@ previous error list in place. The "Errors are current after completed evaluation
 [Contract](#contract) states the exact partial-state boundary.
 
 **`valid` and `dirty` are derived on read.** `valid` is true when `errors` is empty. `dirty` is true
-once the answers differ from `baseline`, the ones the form opened with. Neither is stored, so
+when the answers differ from `baseline`, the acknowledged answers. Neither is stored, so
 neither can drift.
 
 **`touched` is the fields somebody has visited.** It is what lets a renderer withhold an error until
@@ -1181,13 +1186,13 @@ written, so a refused write changes nothing. Passing `undefined` clears one fiel
 coupon already spent. One field holds one external failure, a second call replaces the first, and
 the failure lasts until that field is filled again or the form is cleared.
 
-`baseline` is those opening answers, held as a value: the schema's defaults overlaid with any seeded
-`values`, fixed when the form opens and never moved again. It is what `dirty` measures against and
-what `clear` returns to, so a host that wants to know _which_ answers moved — not merely that one
-did — reads `extractChanges(form.values, form.baseline)` and gets the names.
+`baseline` starts with the schema's defaults overlaid with seeded `values`. Acceptance advances the
+captured enabled fields to their submitted values or absence. It is what `dirty` measures against
+and what `clear` returns to. Read `extractChanges(form.values, form.baseline)` for the changed names.
 
 `clear` returns every answer to `baseline`. It also clears `touched`, every external failure, and
-every runtime `disable` or `enable`, so the form reads exactly as it opened.
+every runtime `disable` or `enable`. Pending acknowledgement is aborted; the disabled state returns
+to the schema's declarations and the answers return to the acknowledged baseline.
 
 ```ts
 import { createForm, extractChanges } from '@orkestrel/form'
@@ -1204,7 +1209,7 @@ const form = createForm({
 	],
 })
 
-form.baseline // { plan: 'free' } — the answers it opened with, fixed for its whole life
+form.baseline // { plan: 'free' } — the opening answers until a submission is accepted
 
 form.fill('email', 'ada@example.com')
 form.valid // true
@@ -1307,7 +1312,10 @@ form holds now.
 itself settles it, and that settlement is what the outer call returns — one `submit` event, one
 resolved `answer`, and no evaluation after it.
 
-### Retrying a submit
+### Retrying terminal completion
+
+This sequence applies when the host intends to finish the document terminally. For repeated saves
+that leave the document editable, use [Prepare and acknowledge repeated saves](#prepare-and-acknowledge-repeated-saves).
 
 **`submit` is the commit, not the attempt.** It is the moment this document is finished with, which
 is why it settles the form and why nothing may be written afterwards. A network request that can be
@@ -1364,6 +1372,84 @@ form.submit().success // true
 form.status // 'settled'
 ```
 
+### Prepare and acknowledge repeated saves
+
+Use `prepare` for an editable form. It checks an owned snapshot of enabled fields and marks those
+fields touched. Failure returns the checked errors without a receipt. Success installs `pending`
+before emitting `prepare`, and leaves `status` at `editing` and `answer` unresolved. A pending
+receipt refuses another `prepare` or terminal `submit` with `PENDING`; ordinary editing continues.
+
+Pass the exact receipt to `accept` after persistence succeeds. Acceptance advances the baseline
+for its captured enabled names, including deleting an absent answer. Excluded fields retain their
+previous baseline. Live values, disabled state, touched fields, and errors stay intact. Receipt
+values and lists are owned and frozen; its native `signal` remains usable by a transport.
+
+This example acknowledges A after B was typed, then saves B:
+
+```ts
+import { createForm } from '@orkestrel/form'
+
+const form = createForm({ fields: [{ control: 'text', name: 'name', default: 'Opening' }] })
+form.fill('name', 'A')
+const first = form.prepare()
+if (first.success) {
+	form.fill('name', 'B')
+	form.accept(first.value) // true
+	form.baseline.name // 'A'
+	form.values.name // 'B'
+	form.dirty // true
+	first.value.signal.aborted // false
+}
+const second = form.prepare()
+if (second.success) form.accept(second.value) // true
+form.dirty // false
+form.status // 'editing'
+```
+
+On a refused save, apply field failures with `invalidate(name, message, receipt)` while the receipt
+is active, then call `abort(receipt)`. Ticketed invalidation returns `false` if the field was excluded
+or refilled after capture, including A-to-B-to-A edits and same-value refills. An unknown field
+still throws `FIELD`. Unticketed invalidation keeps its local behavior and returns `true`.
+
+Abort consumes the active identity before aborting its signal and emitting `abort`. It leaves the
+baseline and live values intact. A copied, foreign, consumed, or reset receipt returns `false` from
+completion methods without events. Successful acceptance leaves the signal un-aborted.
+
+The following refusal remains retryable:
+
+```ts
+import { createForm } from '@orkestrel/form'
+
+const form = createForm({ fields: [{ control: 'text', name: 'email' }] })
+form.fill('email', 'ada@example.com')
+const prepared = form.prepare()
+if (prepared.success) {
+	form.invalidate('email', 'Already registered', prepared.value) // true
+	form.abort(prepared.value) // true
+	prepared.value.signal.aborted // true
+	form.accept(prepared.value) // false
+}
+form.fill('email', 'grace@example.com')
+const retry = form.prepare()
+if (retry.success) form.accept(retry.value) // true
+form.dirty // false
+```
+
+Preparation refuses nested `prepare` and `submit` during validation. A failed check retains its
+checked errors even when an observer repairs them. A passing check drains observer edits through
+one further check, then keeps that check's snapshot even if its notifications produce later edits.
+The live errors retain those later mutations. A throwing validator produces no usable receipt and
+doesn't advance the baseline. A `prepare` observer may fill, invalidate, accept, abort, or destroy;
+the returned receipt still describes the prepared snapshot, so check `pending` before starting
+delayed work. Acceptance and abortion consume before notification, allowing a listener to prepare
+a successor without an older operation clearing it.
+
+`clear` aborts pending work, restores the acknowledged baseline, clears touch and external failures,
+and restores the schema's disabled declarations. If a listener clears while preparation is checking,
+that interrupted preparation throws `PENDING`. Destroy aborts pending work at the existing deferred
+outer-batch teardown boundary. Transport scheduling, retries, and persistence remain the caller's
+responsibility; use the receipt's signal where the transport supports cancellation.
+
 ## Events
 
 Each event carries what a listener needs to act without reading the form back.
@@ -1375,6 +1461,10 @@ Each event carries what a listener needs to act without reading the form back.
 | `disable`  | the field's `name`                    | Once per field taken out of the form, in schema order. A call that moves nothing announces nothing. A `clear` is the exception; see its row.                                                                                                                                                                   |
 | `enable`   | the field's `name`                    | Once per field put back into the form, in schema order. A call that moves nothing announces nothing. A `clear` is the exception; see its row.                                                                                                                                                                  |
 | `submit`   | the submitted `FormValues`            | On the submit that settles the form, and only that one.                                                                                                                                                                                                                                                        |
+| `touch`    | the field's `name`                    | On the first touch since clear, including fields touched by preparation or failed terminal submission.                                                                                                                                                                                                         |
+| `prepare`  | the `FormSubmission` receipt          | After installing the validated snapshot as pending.                                                                                                                                                                                                                                                            |
+| `accept`   | the `FormSubmission` receipt          | After adopting its captured enabled answers into baseline and consuming the pending identity.                                                                                                                                                                                                                  |
+| `abort`    | the `FormSubmission` receipt          | After consuming the pending identity and aborting its signal, including clear and destroy.                                                                                                                                                                                                                     |
 | `clear`    | nothing                               | On a completed `clear`, before any `validate` it caused. `clear` is the whole announcement of the reset: restored answers emit no `fill`, and the overlay reset emits no `disable` or `enable`. A custom-validator throw during reevaluation resets state but emits no `clear` and leaves the previous errors. |
 | `abandon`  | nothing                               | On the `destroy` that abandons an unsettled form. Never on a settled one.                                                                                                                                                                                                                                      |
 
@@ -1569,17 +1659,20 @@ call signature and no named members.
 
 #### `FormInterface`
 
-| Method       | Returns                    | Summary                                                            |
-| ------------ | -------------------------- | ------------------------------------------------------------------ |
-| `field`      | `FormField` or `undefined` | Finds one field by name.                                           |
-| `fill`       | `void`                     | Answers one field, or several at once.                             |
-| `touch`      | `void`                     | Records that somebody has visited a field.                         |
-| `invalidate` | `void`                     | Fails a field from outside, for what the rules cannot see.         |
-| `disable`    | `void`                     | Takes one field, several fields, or every field out of the form.   |
-| `enable`     | `void`                     | Puts one field, several fields, or every field back into the form. |
-| `submit`     | `FormResult`               | Checks every answer and settles the form when they all pass.       |
-| `clear`      | `void`                     | Returns every answer to the ones the form opened with.             |
-| `destroy`    | `void`                     | Tears the form down, abandoning it when it has not settled.        |
+| Method       | Returns                    | Summary                                                                                        |
+| ------------ | -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `field`      | `FormField` or `undefined` | Finds one field by name.                                                                       |
+| `fill`       | `void`                     | Answers one field, or several at once.                                                         |
+| `touch`      | `void`                     | Records that somebody has visited a field.                                                     |
+| `invalidate` | `boolean`                  | Fails a field from outside, for what the rules cannot see.                                     |
+| `disable`    | `void`                     | Takes one field, several fields, or every field out of the form.                               |
+| `enable`     | `void`                     | Puts one field, several fields, or every field back into the form.                             |
+| `submit`     | `FormResult`               | Checks every answer and settles the form when they all pass.                                   |
+| `prepare`    | `FormPreparationResult`    | Prepares an owned enabled snapshot for acknowledgement while leaving the form editable.        |
+| `accept`     | `boolean`                  | Adopts the active submission's captured answers into the baseline without changing live state. |
+| `abort`      | `boolean`                  | Consumes the active submission and aborts its signal without changing answers or baseline.     |
+| `clear`      | `void`                     | Returns every answer to its acknowledged baseline and aborts pending acknowledgement.          |
+| `destroy`    | `void`                     | Tears the form down, abandoning it when it has not settled.                                    |
 
 ## Errors
 
@@ -1594,6 +1687,7 @@ throw is the caller's exception and escapes unchanged.
 | `CONTROL`   | A value written or seeded is one its field's control cannot hold.                                                                                                                                                                 |
 | `SETTLED`   | A write reached a form that has already settled.                                                                                                                                                                                  |
 | `ABANDONED` | A write reached a form that was destroyed before it settled, or `answer` rejected for that reason.                                                                                                                                |
+| `PENDING`   | Preparation or terminal submission overlaps preparation or an active receipt, or clear interrupts preparation.                                                                                                                    |
 
 ```ts
 import { createForm, isFormError } from '@orkestrel/form'
@@ -1658,7 +1752,7 @@ These invariants hold across [`src/core`](../src/core) and this guide.
    `validate` listener wrote during that submit, `errors` can already differ from it.
 5. **`valid` and `dirty` are derived.** Both are computed on read, from `errors` and from the
    answers against `baseline`, so neither can drift from what the form holds. `baseline` itself is
-   fixed when the form opens and never moves again.
+   advances only for enabled names captured by an accepted submission. Later edits remain dirty.
 6. **A write is all-or-nothing.** `fill` checks every answer against its control before writing any,
    and `disable` and `enable` check every name against the schema before any field moves, so a
    `FIELD` or `CONTROL` failure leaves the form exactly as it was.
@@ -1743,7 +1837,7 @@ next change knows what it is reopening. `Layer` names who owns the concept, and 
 | Computed fields                        | host          | A field deriving its value from siblings would be a second writer of `values` and could disagree with `fill`. The host computes and fills, so one writer stays one writer.                                                                                                            |
 | Async and live choices                 | host          | `choices` is data in the schema. A list fetched or filtered while somebody types is the host building a new schema, which `parseForm` audits for it.                                                                                                                                  |
 | Drafts and autosave                    | host          | `values` is readable at any moment and `parseValues` reads a stored record back, so persistence is a host loop over `values` and `parseValues` with the host's own storage and cadence.                                                                                               |
-| Undo and history                       | host          | The form holds the answers and `baseline` holds the ones it opened with. A stack of everything in between is a host concern with a host's retention policy.                                                                                                                           |
+| Undo and history                       | host          | The form holds live answers and `baseline` holds acknowledged answers. A history stack and its retention policy belong to the host.                                                                                                                                                   |
 | Schema migration                       | host          | Versioning a stored schema and moving old answers onto a new one is the host's data problem. `parseForm` and `parseValues` are the gates on each side of it.                                                                                                                          |
 | Trim and normalize                     | binding       | The form stores what it is given. Trimming, case folding, and Unicode normalization belong to the binding, and `matchesAnswer` is where a value that is blank after trimming becomes absence.                                                                                         |
 | Localization                           | host          | `FormOptions.messages` replaces a rule's copy, and `label` and `help` are the schema author's strings. Locale selection, plurals, and message catalogs are the host's.                                                                                                                |

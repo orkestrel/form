@@ -5,12 +5,13 @@ import type {
 	FormEventMap,
 	FormField,
 	FormSchema,
+	FormSubmission,
 	FormValues,
 	TextField,
 } from '@src/core'
 import { Form, STRING_LIMIT, isFormError, isFormSchema } from '@src/core'
 import { attempt } from '@orkestrel/contract'
-import { createRecorder, waitForDelay } from '@orkestrel/test'
+import { createRecorder, requireValue, waitForDelay } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import { createSequenceValidator } from '../../setup.js'
 
@@ -717,6 +718,428 @@ describe('Form disable and enable', () => {
 		expect(outcome.success ? undefined : outcome.error).toBe(failure)
 		expect(form.disabled.size).toBe(0)
 		expect(form.errors).toStrictEqual([])
+	})
+})
+
+describe('Form acknowledged editing', () => {
+	it('acknowledges captured A after edit B and makes a second save clean', () => {
+		const form = new Form(SCHEMA, { values: ANSWERED })
+		const opened = form.baseline
+		form.fill('nickname', 'A')
+		const prepared = form.prepare()
+		expect(prepared.success).toBe(true)
+		const submission = requireValue(form.pending)
+		expect(prepared).toEqual({ success: true, value: submission })
+		form.fill('nickname', 'B')
+		expect(form.accept(submission)).toBe(true)
+		expect(form.baseline.nickname).toBe('A')
+		expect(opened.nickname).toBe('ada')
+		expect(form.values.nickname).toBe('B')
+		expect(form.dirty).toBe(true)
+		expect(form.pending).toBeUndefined()
+		expect(submission.signal.aborted).toBe(false)
+		form.prepare()
+		expect(form.accept(requireValue(form.pending))).toBe(true)
+		expect(form.baseline.nickname).toBe('B')
+		expect(form.dirty).toBe(false)
+		expect(form.status).toBe('editing')
+		form.destroy()
+		expect(submission.signal.aborted).toBe(false)
+	})
+
+	it('adopts captured absence, false, zero and empty values while retaining excluded baselines', () => {
+		const form = new Form({
+			fields: [
+				{ control: 'text', name: 'deleted', default: 'remove' },
+				{ control: 'text', name: 'excluded', default: 'retain', disabled: true },
+				{ control: 'number', name: 'count', default: 9 },
+				{ control: 'confirm', name: 'confirmed', default: true },
+				{ control: 'text', name: 'empty', default: 'filled', rule: { required: true } },
+				{ control: 'checkbox', name: 'choices', choices: [] },
+			],
+		})
+		form.fill('deleted', undefined)
+		form.fill({ excluded: 'unsaved', count: 0, confirmed: false, empty: '', choices: [] })
+		form.prepare()
+		const submission = requireValue(form.pending)
+		form.enable('excluded')
+		form.disable('count')
+		expect(form.accept(submission)).toBe(true)
+		expect(form.baseline).toEqual({
+			excluded: 'retain',
+			count: 0,
+			confirmed: false,
+			empty: '',
+			choices: [],
+		})
+		expect(form.values.excluded).toBe('unsaved')
+		expect(form.disabled).toEqual(new Set(['count']))
+		expect(form.dirty).toBe(true)
+		form.clear()
+		expect(form.values).toEqual(form.baseline)
+		expect(Object.hasOwn(form.values, 'deleted')).toBe(false)
+		expect(form.disabled).toEqual(new Set(['excluded']))
+	})
+
+	it('owns and freezes the receipt and lists independently of live values', () => {
+		const form = new Form(SCHEMA, { values: ANSWERED })
+		form.prepare()
+		const submission = requireValue(form.pending)
+		expect(Object.isFrozen(submission)).toBe(true)
+		expect(Object.isFrozen(submission.values)).toBe(true)
+		expect(Object.isFrozen(submission.values.topics)).toBe(true)
+		expect(submission.values.topics).not.toBe(form.values.topics)
+		expect(Reflect.set(submission.values, 'nickname', 'forged')).toBe(false)
+		form.fill('topics', ['events'])
+		expect(submission.values.topics).toEqual(['releases'])
+	})
+
+	it('uses identity for foreign, copied, consumed and superseded completions', () => {
+		const form = new Form(SCHEMA, { values: ANSWERED })
+		const foreign = new Form(SCHEMA, { values: ANSWERED })
+		const accepted = createRecorder<FormEventMap['accept']>()
+		const aborted = createRecorder<FormEventMap['abort']>()
+		form.emitter.on('accept', accepted.handler)
+		form.emitter.on('abort', aborted.handler)
+		form.prepare()
+		foreign.prepare()
+		const submission = requireValue(form.pending)
+		expect(form.accept({ ...submission })).toBe(false)
+		expect(form.abort(requireValue(foreign.pending))).toBe(false)
+		expect(form.accept(submission)).toBe(true)
+		form.prepare()
+		const successor = requireValue(form.pending)
+		expect(form.accept(submission)).toBe(false)
+		expect(form.abort(submission)).toBe(false)
+		expect(form.pending).toBe(successor)
+		expect(accepted.count).toBe(1)
+		expect(aborted.count).toBe(0)
+		form.destroy()
+		foreign.destroy()
+		expect(form.accept(successor)).toBe(false)
+		expect(form.abort(successor)).toBe(false)
+	})
+
+	it('refuses duplicate preparation and terminal submission without preventing edits', () => {
+		const form = new Form(SCHEMA, { values: ANSWERED })
+		form.prepare()
+		const submission = requireValue(form.pending)
+		expect(() => form.prepare()).toThrow(expect.objectContaining({ code: 'PENDING' }))
+		expect(() => form.submit()).toThrow(expect.objectContaining({ code: 'PENDING' }))
+		form.fill('nickname', 'edited')
+		expect(form.pending).toBe(submission)
+		expect(form.abort(submission)).toBe(true)
+		expect(form.submit().success).toBe(true)
+	})
+
+	it('rejects A-B-A invalidation and same-value refill while keeping unticketed failures', () => {
+		const form = new Form(SCHEMA, { values: ANSWERED })
+		form.prepare()
+		const submission = requireValue(form.pending)
+		form.fill('nickname', 'B')
+		form.fill('nickname', 'ada')
+		expect(form.invalidate('nickname', 'Old A', submission)).toBe(false)
+		expect(form.invalidate('email', 'Rejected', submission)).toBe(true)
+		form.fill('email', 'ada@example.com')
+		expect(form.invalidate('email', 'Late rejection', submission)).toBe(false)
+		expect(form.invalidate('referral', 'Excluded', submission)).toBe(false)
+		expect(form.invalidate('nickname', 'Local')).toBe(true)
+		expect(form.errors).toEqual([{ field: 'nickname', message: 'Local' }])
+		expect(() => form.invalidate('missing', 'Unknown', submission)).toThrow(
+			expect.objectContaining({ code: 'FIELD' }),
+		)
+		form.abort(submission)
+		expect(form.invalidate('terms', 'Consumed', submission)).toBe(false)
+		form.destroy()
+		expect(form.invalidate('terms', 'Late', submission)).toBe(false)
+		expect(() => form.invalidate('missing', 'Unknown', submission)).toThrow(
+			expect.objectContaining({ code: 'FIELD' }),
+		)
+	})
+
+	it('keeps live errors and touch state on acceptance and permits failure then retry', () => {
+		const form = new Form(SCHEMA, { values: ANSWERED })
+		form.fill('nickname', 'submitted')
+		form.prepare()
+		const failed = requireValue(form.pending)
+		form.invalidate('email', 'Already registered', failed)
+		expect(form.abort(failed)).toBe(true)
+		expect(failed.signal.aborted).toBe(true)
+		expect(form.baseline.nickname).toBe('ada')
+		expect(form.prepare().success).toBe(false)
+		expect(form.pending).toBeUndefined()
+		form.fill('email', 'grace@example.com')
+		form.prepare()
+		const retry = requireValue(form.pending)
+		form.invalidate('nickname', 'Local error')
+		const errors = form.errors
+		const touched = form.touched
+		expect(form.accept(retry)).toBe(true)
+		expect(form.errors).toBe(errors)
+		expect(form.touched).toEqual(touched)
+		expect(form.valid).toBe(false)
+	})
+
+	it('touches enabled fields on failed preparation and emits only first touches since clear', () => {
+		const form = new Form(SCHEMA)
+		const touched = createRecorder<FormEventMap['touch']>()
+		form.emitter.on('touch', touched.handler)
+		form.touch('email')
+		form.touch('email')
+		expect(form.prepare()).toEqual({ success: false, error: BIRTH })
+		expect(form.pending).toBeUndefined()
+		expect(touched.calls.map(([name]) => name)).toEqual([
+			'email',
+			'terms',
+			'topics',
+			'nickname',
+			'token',
+		])
+		form.prepare()
+		expect(touched.count).toBe(5)
+		form.clear()
+		form.touch('email')
+		expect(touched.count).toBe(6)
+	})
+
+	it('clears and destroys pending signals and makes delayed completion inert', async () => {
+		const form = new Form(SCHEMA, { values: ANSWERED })
+		form.fill('nickname', 'saved')
+		form.prepare()
+		form.accept(requireValue(form.pending))
+		form.fill('nickname', 'unsaved')
+		form.prepare()
+		const cleared = requireValue(form.pending)
+		cleared.signal.addEventListener('abort', () => {
+			expect(form.pending).toBeUndefined()
+			expect(form.values.nickname).toBe('saved')
+			expect(form.accept(cleared)).toBe(false)
+		})
+		form.clear()
+		expect(cleared.signal.aborted).toBe(true)
+		expect(form.accept(cleared)).toBe(false)
+		form.prepare()
+		const destroyed = requireValue(form.pending)
+		form.destroy()
+		expect(destroyed.signal.aborted).toBe(true)
+		expect(form.pending).toBeUndefined()
+		expect(form.status).toBe('abandoned')
+		await expect(form.answer).rejects.toMatchObject({ code: 'ABANDONED' })
+	})
+
+	it('lets prepare listeners fill, invalidate and accept the installed receipt', () => {
+		const form = new Form(SCHEMA, { values: ANSWERED })
+		const observed: FormSubmission[] = []
+		form.emitter.on('prepare', (submission) => {
+			expect(form.pending).toBe(submission)
+			form.fill('nickname', 'B')
+			form.invalidate('email', 'Rejected', submission)
+			expect(form.accept(submission)).toBe(true)
+			observed.push(submission)
+		})
+		const result = form.prepare()
+		expect(result).toEqual({ success: true, value: observed[0] })
+		expect(form.baseline.nickname).toBe('ada')
+		expect(form.values.nickname).toBe('B')
+		expect(form.errors).toEqual([{ field: 'email', message: 'Rejected' }])
+		expect(form.pending).toBeUndefined()
+	})
+
+	it('retains successors prepared by accept, abort and signal listeners', () => {
+		const form = new Form(SCHEMA, { values: ANSWERED })
+		form.emitter.once('prepare', (submission) => form.accept(submission))
+		form.emitter.once('accept', () => form.prepare())
+		const original = form.prepare()
+		expect(original.success).toBe(true)
+		const successor = requireValue(form.pending)
+		expect(original.success && original.value === successor).toBe(false)
+		successor.signal.addEventListener('abort', () => form.prepare(), { once: true })
+		expect(form.abort(successor)).toBe(true)
+		const afterSignal = requireValue(form.pending)
+		expect(afterSignal).not.toBe(successor)
+		form.emitter.once('abort', () => form.prepare())
+		expect(form.abort(afterSignal)).toBe(true)
+		expect(form.pending).not.toBe(afterSignal)
+	})
+
+	it('isolates listener throws and defers teardown to the end of the prepare batch', () => {
+		const failures = createRecorder<[unknown, string]>()
+		const form = new Form(SCHEMA, { values: ANSWERED, error: failures.handler })
+		const events: string[] = []
+		form.emitter.on('prepare', () => {
+			throw new Error('Observer failed')
+		})
+		form.emitter.on('prepare', (submission) => {
+			form.destroy()
+			expect(form.accept(submission)).toBe(false)
+			expect(form.abort(submission)).toBe(false)
+			events.push(form.status)
+		})
+		form.emitter.on('abort', (submission) => {
+			expect(submission.signal.aborted).toBe(true)
+			events.push('abort')
+		})
+		form.emitter.on('abandon', () => events.push('abandon'))
+		const prepared = form.prepare()
+		expect(prepared.success && prepared.value.signal.aborted).toBe(true)
+		expect(events).toEqual(['editing', 'abort', 'abandon'])
+		expect(failures.calls.map(([, event]) => event)).toEqual(['prepare'])
+		expect(form.emitter.destroyed).toBe(true)
+	})
+
+	it('refuses nested prepare and submit during validation and releases the guard after a throw', () => {
+		let checking = false
+		let failure: Error | undefined
+		const form = new Form({
+			fields: [
+				{
+					control: 'text',
+					name: 'name',
+					rule: {
+						custom: () => {
+							if (!checking) return true
+							expect(() => form.prepare()).toThrow(expect.objectContaining({ code: 'PENDING' }))
+							expect(() => form.submit()).toThrow(expect.objectContaining({ code: 'PENDING' }))
+							if (failure !== undefined) throw failure
+							return true
+						},
+					},
+				},
+			],
+		})
+		checking = true
+		failure = new Error('Validator failed')
+		expect(() => form.prepare()).toThrow(failure)
+		expect(form.pending).toBeUndefined()
+		expect(form.baseline).toEqual({})
+		failure = undefined
+		expect(form.prepare().success).toBe(true)
+	})
+
+	it('drains validation listeners once and never pairs a checked snapshot with later unchecked edits', () => {
+		const sequence = createSequenceValidator([
+			'opening',
+			true,
+			'intermediate',
+			true,
+			'late invalid',
+		])
+		const form = new Form({
+			fields: [{ control: 'text', name: 'name', default: 'A', rule: { custom: sequence } }],
+		})
+		let fills = 0
+		form.emitter.on('validate', () => {
+			if (form.errors.length !== 0) return
+			fills += 1
+			form.fill('name', fills === 1 ? 'B' : 'C')
+		})
+		const prepared = form.prepare()
+		expect(prepared.success).toBe(true)
+		expect(requireValue(form.pending).values).toEqual({ name: 'B' })
+		expect(form.values).toEqual({ name: 'C' })
+		expect(form.errors).toEqual([{ field: 'name', message: 'late invalid' }])
+		expect(fills).toBe(2)
+	})
+
+	it('keeps an initially failed preparation failed after a validation listener repairs it', () => {
+		const sequence = createSequenceValidator([true, 'refused', true])
+		const form = new Form({
+			fields: [{ control: 'text', name: 'name', rule: { custom: sequence } }],
+		})
+		form.emitter.once('validate', () => form.fill('name', 'repaired'))
+		expect(form.prepare()).toEqual({
+			success: false,
+			error: [{ field: 'name', message: 'refused' }],
+		})
+		expect(form.pending).toBeUndefined()
+		expect(form.errors).toEqual([])
+	})
+
+	it('retains current errors when a validator edits while checking an owned snapshot', () => {
+		let edit = false
+		const form = new Form({
+			fields: [
+				{
+					control: 'text',
+					name: 'name',
+					default: 'A',
+					rule: {
+						custom: (value) => {
+							if (edit) {
+								edit = false
+								form.fill('name', 'B')
+							}
+							return value === 'B' ? 'B refused' : true
+						},
+					},
+				},
+			],
+		})
+		edit = true
+		expect(form.prepare()).toEqual({
+			success: false,
+			error: [{ field: 'name', message: 'B refused' }],
+		})
+		expect(form.values.name).toBe('B')
+		expect(form.errors).toEqual([{ field: 'name', message: 'B refused' }])
+		expect(form.pending).toBeUndefined()
+	})
+
+	it('prevents clear or destroy during preparation from producing a usable receipt', () => {
+		const cleared = new Form(SCHEMA, { values: ANSWERED })
+		cleared.emitter.once('touch', () => cleared.clear())
+		expect(() => cleared.prepare()).toThrow(expect.objectContaining({ code: 'PENDING' }))
+		expect(cleared.pending).toBeUndefined()
+		expect(cleared.prepare().success).toBe(true)
+		const destroyed = new Form(SCHEMA, { values: ANSWERED })
+		destroyed.emitter.once('touch', () => destroyed.destroy())
+		expect(() => destroyed.prepare()).toThrow(expect.objectContaining({ code: 'ABANDONED' }))
+		expect(destroyed.pending).toBeUndefined()
+		expect(destroyed.emitter.destroyed).toBe(true)
+	})
+
+	it('keeps a successor prepared by a clear signal listener and aborts even if reset validation throws', () => {
+		let failure = false
+		const form = new Form({
+			fields: [
+				{
+					control: 'text',
+					name: 'name',
+					default: 'opening',
+					rule: {
+						custom: () => {
+							if (failure) throw new Error('reset failed')
+							return true
+						},
+					},
+				},
+			],
+		})
+		form.prepare()
+		const original = requireValue(form.pending)
+		original.signal.addEventListener('abort', () => form.prepare(), { once: true })
+		form.clear()
+		const successor = requireValue(form.pending)
+		expect(successor).not.toBe(original)
+		failure = true
+		expect(() => form.clear()).toThrow('reset failed')
+		expect(successor.signal.aborted).toBe(true)
+		expect(form.pending).toBeUndefined()
+	})
+
+	it('retains the terminal answer promise through acknowledgement', async () => {
+		const form = new Form(SCHEMA, { values: ANSWERED })
+		let resolved = false
+		void form.answer.then(() => {
+			resolved = true
+		})
+		form.prepare()
+		form.accept(requireValue(form.pending))
+		await Promise.resolve()
+		expect(resolved).toBe(false)
+		expect(form.submit().success).toBe(true)
+		await form.answer
+		expect(resolved).toBe(true)
 	})
 })
 
