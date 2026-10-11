@@ -9,8 +9,8 @@ prepares a snapshot and accepts an acknowledgement while further edits remain po
 form settles through `submit`. Each host contributes the part it owns. Parking is the server environment's
 contribution: `answer` is a form whose result nobody has resolved yet, so a server can hand the
 document out, wait, and receive the answers back through the same promise a local caller awaits.
-Rendering is the browser's contribution, and it lives in the browser, not here. Nothing here
-renders, reads a keyboard, or opens a socket. This package ships the document both hosts share.
+Rendering belongs to the browser entry. The core never reads a keyboard or opens a socket;
+the browser binding projects that same document into native controls.
 
 The core is pure and total. Every guard returns `false` off-shape rather than throwing, every parser
 returns `undefined` on refusal, and every value the form hands back is a frozen owned copy.
@@ -19,9 +19,9 @@ throw escapes the mutation call unchanged.
 
 ## Surface
 
-Everything in this guide is exported from `@orkestrel/form` ([`src/core`](../src/core)). Nothing is
-internal: every declaration in the module is reachable from the barrel, so a consumer holds exactly
-the mechanisms the package uses on itself.
+The document exports come from `@orkestrel/form` ([`src/core`](../src/core)); the native binding
+exports come from `@orkestrel/form/browser` ([`src/browser`](../src/browser)). Every declaration
+is reachable through its environment's barrel.
 
 ### Open a form, answer it, and settle it
 
@@ -230,6 +230,46 @@ owned value rather than the caller's.
 | `parseForm`   | function | Parses unknown wire data into an owned, semantically sound form schema. |
 | `parseValue`  | function | Parses one answer against its field control.                            |
 | `parseValues` | function | Parses a strict answer record against the fields declared by a schema.  |
+
+### Native browser binding
+
+The browser entry publishes the controlled native form and its host readers.
+
+| Symbol                 | Kind      | Shape                                                                   | Summary                                                                                 |
+| ---------------------- | --------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `FormControl`          | type      | `HTMLInputElement` or `HTMLSelectElement` or `HTMLTextAreaElement`      | Represents a native answer control admitted by the binding.                             |
+| `FormBindingErrorCode` | type      | `'CONTROL'` or `'PENDING'` or `'DOM'`                                   | Names a native binding refusal.                                                         |
+| `FormBindingEventMap`  | type      | `{ render, submit, error }`                                             | Lists the native binding's notifications after their associated DOM effects.            |
+| `FormBindingOptions`   | interface | `{ feedback?, summary?, on?, error? }`                                  | Configures neutral feedback destinations and isolated event listeners.                  |
+| `FormBindingInterface` | interface | `{ element, document, destroyed, emitter } plus read, refresh, destroy` | Declares a native form's borrowed document and synchronization lifecycle.               |
+| `FormBindingAttribute` | interface | `{ original, value }`                                                   | Records an attribute's authored value and the binding's last contribution.              |
+| `FormBindingValidity`  | interface | `{ original, value }`                                                   | Records the binding's custom-validity contribution beside the authored message.         |
+| `FormBinding`          | class     | `FormBindingInterface`                                                  | Implements a controlled native form over a borrowed document.                           |
+| `FormBindingError`     | class     | `{ code, context }`                                                     | Reports an incompatible control, overlapping submission, or native DOM failure.         |
+| `createFormBinding`    | function  | `(element, document, options?) => FormBindingInterface`                 | Creates a native form binding exposed through its lifecycle interface.                  |
+| `isFormBindingError`   | function  | `(value: unknown) => value is FormBindingError`                         | Checks whether a value is a native binding refusal.                                     |
+| `isFormControl`        | function  | `(value: unknown) => value is FormControl`                              | Checks whether a value is a native answer control.                                      |
+| `matchesFormControls`  | function  | `(field, controls) => boolean`                                          | Checks a native control population against a field's declared value shape.              |
+| `readFormControls`     | function  | `(field, controls) => FieldValue or undefined`                          | Reads one compatible native population using the document's blank-to-absence semantics. |
+
+The standalone reader uses the same admission rules as the binding.
+
+```ts
+import {
+	FormBindingError,
+	isFormBindingError,
+	isFormControl,
+	matchesFormControls,
+	readFormControls,
+} from '@orkestrel/form/browser'
+
+const input = document.createElement('input')
+input.value = 'Ada'
+isFormControl(input) // true
+matchesFormControls({ control: 'text', name: 'name' }, [input]) // true
+readFormControls({ control: 'text', name: 'name' }, [input]) // 'Ada'
+isFormBindingError(new FormBindingError('CONTROL', 'Duplicate controls')) // true
+```
 
 ## Controls
 
@@ -1450,6 +1490,109 @@ that interrupted preparation throws `PENDING`. Destroy aborts pending work at th
 outer-batch teardown boundary. Transport scheduling, retries, and persistence remain the caller's
 responsibility; use the receipt's signal where the transport supports cancellation.
 
+## Native binding
+
+The binding borrows one document. Construction paints its answers into controls, including controls
+associated through the native `form` attribute. Unknown names and submitters stay outside the schema.
+Missing controls keep their logical answers. Incompatible controls and duplicate scalar controls
+raise a `CONTROL` binding error before answers or native values change. Radio and checkbox groups
+are supported; a confirm field uses one checkbox. Native input and change events import answers,
+and focusout touches the field. Explicit `read()` and `refresh()` also rediscover membership.
+A mutation observer follows membership, association, and native constraint attributes without polling.
+
+### Bind an editable native form
+
+This executable browser example prepares a receipt, accepts its snapshot after another edit, and
+resets to the acknowledged answer. Its native composition is proved in
+[`tests/src/browser/integration.test.ts`](../tests/src/browser/integration.test.ts).
+
+```ts
+import { createForm } from '@orkestrel/form'
+import { createFormBinding } from '@orkestrel/form/browser'
+
+const element = document.createElement('form')
+element.innerHTML = '<input name="name"><button>Save</button>'
+document.body.append(element)
+const model = createForm({ fields: [{ name: 'name', control: 'text', default: 'Ada' }] })
+const binding = createFormBinding(element, model)
+const input = element.querySelector('input')
+if (input === null) throw new Error('Missing name control')
+input.value // 'Ada'
+input.value = 'Grace'
+binding.read()
+element.requestSubmit()
+const receipt = model.pending
+if (receipt === undefined) throw new Error('Submission refused')
+receipt.values.name // 'Grace'
+model.fill('name', 'Later edit')
+model.accept(receipt) // true
+model.dirty // true
+element.reset()
+input.value // 'Grace'
+model.dirty // false
+binding.refresh()
+binding.destroy()
+model.status // 'editing'
+model.destroy()
+element.remove()
+```
+
+The binding owns native `noValidate` during its lifetime. An admitted submit prevents navigation,
+imports controls, touches enabled fields, checks native validity, and prepares the document. Its
+`submit` event carries the active receipt and the native submitter, or `undefined` without one.
+A receipt consumed during a core prepare listener is never dispatched to persistence. The consumer
+alone persists, accepts, or aborts it. A duplicate submission raises the binding's `PENDING` domain
+error, creates no receipt, and leaves edits enabled. The form and submit actions carry `aria-busy`;
+their dimensions and enabled state stay native. A prevented submit or reset has no binding effect.
+An admitted reset calls the document's clear operation and prevents HTML default-value restoration.
+
+Neutral feedback uses owned spans carrying `data-form-feedback="field"`, each with a unique ID.
+Supply `feedback: new Map([['field', destination]])` to choose a parent; authored children remain.
+Otherwise the binding places the span after the field's last native control. Touched errors set
+`aria-invalid` and add the feedback ID to authored `aria-describedby` tokens. An optional `summary`
+destination receives an owned `ul[data-form-summary]`; its links focus eligible controls, and errors
+without reachable controls remain text. An invalid submission focuses the first eligible invalid
+control. The binding never invokes a native validity popup. A `render` event follows DOM effects,
+including effects triggered by core changes, so a presentation adapter can apply its own classes.
+
+Native and document validation remain distinct sources. Native validity refuses preparation and
+appears beside document errors; it does not overwrite the document's external invalidation slot.
+Unchanged reads never refill a field, so application invalidations survive refresh and resubmission.
+The binding removes only its own custom-validity contribution, preserves authored custom errors,
+and withholds visual feedback until touch. Application changes to custom validity require an input
+event or explicit refresh because the platform emits no custom-validity mutation event.
+
+### Native capability boundaries
+
+The browser admits text, search, email, URL, telephone, hidden, password, textarea, number, range,
+date, time, datetime-local, color, confirm, radio, single select, multiple select, checkbox groups,
+and file inputs. Blank strings become absence through the core's answer predicate; false, zero, and
+empty lists remain answers. Numeric bad input remains a native error and never becomes NaN or a
+valid absent answer. Explicit refresh discards that unreadable native text and repaints the document's
+answer; ordinary input, touch, and submit keep the text available for correction. Native constraints
+still apply, including authored custom errors. Compatible
+required and numeric/temporal bounds are reflected when appropriate; presence-only required never
+becomes must-be-checked for confirm or must-be-nonempty for a list.
+
+Native disabled controls, including disabled fieldsets with their first-legend exception, exclude
+a mounted field when every control in its group is disabled. A partially disabled choice group reads
+its enabled controls. Declared and observable application disables retain their logical authority.
+The binding reverses only its own native exclusion. Repeating disable while the field is already
+excluded is the core's no-op; it does not acquire a second exclusion lease. A removed population
+releases the binding's exclusion and retains its answer. Locked values remain logically enabled;
+text-like controls become readonly, while selections repaint the document's answer on mutation.
+
+Files carry names in the document and bytes only in the native input. A mismatching document value
+clears the native selection; a nonempty saved filename never repopulates bytes. Explicit reading of
+an empty file picker imports an empty list. Display retained filenames separately when an application
+needs them, and keep upload transport outside the binding. Native range/color defaults and calendar
+sanitization also remain browser capabilities: a core value the browser cannot represent can display
+the native empty/default value, and a subsequent read imports that displayed answer.
+
+Destroy disconnects observation and listeners, removes owned feedback and summary nodes, restores
+owned attributes and validity, and releases binding-owned native exclusion. It retains control values
+and authored content, and leaves the document alive. Reads and refreshes after destroy do nothing.
+
 ## Events
 
 Each event carries what a listener needs to act without reading the form back.
@@ -1674,6 +1817,16 @@ call signature and no named members.
 | `clear`      | `void`                     | Returns every answer to its acknowledged baseline and aborts pending acknowledgement.          |
 | `destroy`    | `void`                     | Tears the form down, abandoning it when it has not settled.                                    |
 
+#### `FormBindingInterface`
+
+The native binding exposes only synchronization and teardown methods.
+
+| Method    | Returns | Summary                                                                   |
+| --------- | ------- | ------------------------------------------------------------------------- |
+| `read`    | `void`  | Imports mounted enabled controls without acknowledging their answers.     |
+| `refresh` | `void`  | Rediscovers controls and projects the document into the native form.      |
+| `destroy` | `void`  | Releases owned DOM effects and listeners without destroying the document. |
+
 ## Errors
 
 `FormError` carries a machine-readable `code` and an optional structured `context`. Narrow a caught
@@ -1845,10 +1998,18 @@ next change knows what it is reopening. `Layer` names who owns the concept, and 
 | Group and choice `meta`                | out           | `meta` is on `FieldBase` alone, because a field carrier is what the first consumer asked for. The exact guards refuse it on `FormGroup` and `FieldChoice` until one asks.                                                                                                             |
 | Constraint-API binding                 | `src/browser` | Reflecting `required` and `minimum` onto real elements, and reading `validity` back, is binding work. It belongs where the elements are.                                                                                                                                              |
 | `FormData` and duplicate names         | `src/browser` | Several values under one name, the submitter button, and the `FormData` encoding are host wire formats. `FormValues` holds one answer per field name by design.                                                                                                                       |
-| Browser binding                        | `src/browser` | Binding a schema to real elements belongs in a future `src/browser`, taking a form and an element. It is not in this round because nothing renders here yet.                                                                                                                          |
+| Browser binding                        | `src/browser` | The native binding projects an existing document, admits native submission and reset, and owns neutral validation feedback. Applications retain persistence and navigation policy.                                                                                                    |
 | Terminal adoption                      | terminal      | A terminal driver parking a whole form rather than one prompt belongs in the terminal package, on the same `answer` promise this document already exposes.                                                                                                                            |
 
 ## Tests
+
+- [`tests/src/browser/FormBinding.test.ts`](../tests/src/browser/FormBinding.test.ts) covers native
+  ownership, events, disabled state, feedback, focus, pending refusal, and reentrant teardown.
+- [`tests/src/browser/helpers.test.ts`](../tests/src/browser/helpers.test.ts) covers the native control
+  population and file-name boundary; [`tests/src/browser/validators.test.ts`](../tests/src/browser/validators.test.ts)
+  covers total native guards.
+- [`tests/src/browser/integration.test.ts`](../tests/src/browser/integration.test.ts) executes the
+  native guide example and a real keyboard/click editing and acknowledgement flow.
 
 - [`tests/guides.test.ts`](../tests/guides.test.ts) — the `## Surface` ↔ barrel bijection, the
   `FormInterface` ↔ `Form` method bijection, and the equality gate: every `Summary` cell against its

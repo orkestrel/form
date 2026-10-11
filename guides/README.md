@@ -4,18 +4,20 @@ A dual-axis index into this repository's guides — by concept, and by directory
 
 ## By concept
 
-| Concept | Spec                 | Source                    | Tests                                 |
-| ------- | -------------------- | ------------------------- | ------------------------------------- |
-| Form    | [`form.md`](form.md) | [`src/core`](../src/core) | [`tests/src/core`](../tests/src/core) |
+| Concept | Spec                 | Source                                                     | Tests                                                                              |
+| ------- | -------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Form    | [`form.md`](form.md) | [`src/core`](../src/core), [`src/browser`](../src/browser) | [`tests/src/core`](../tests/src/core), [`tests/src/browser`](../tests/src/browser) |
 
 ## By directory
 
-| Directory  | Guide                |
-| ---------- | -------------------- |
-| `src/core` | [`form.md`](form.md) |
+| Directory     | Guide                |
+| ------------- | -------------------- |
+| `src/core`    | [`form.md`](form.md) |
+| `src/browser` | [`form.md`](form.md) |
 
-The parity suite transcribes and executes the flagship fence set from `form.md`. It name-checks and
-parity-checks the remaining fences but does not run them.
+The parity suite executes the core flagship fences from `form.md`. The native flagship runs in
+[`tests/src/browser/integration.test.ts`](../tests/src/browser/integration.test.ts). Parity checks
+resolve the names in every remaining fence without executing them.
 
 ## Dependency reference
 

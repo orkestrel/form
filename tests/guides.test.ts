@@ -32,6 +32,8 @@ const PACKAGE_NAME = '@orkestrel/form'
 const MODULES = Object.freeze({
 	[PACKAGE_NAME]: 'src/core',
 	'@src/core': 'src/core',
+	'@orkestrel/form/browser': 'src/browser',
+	'@src/browser': 'src/browser',
 })
 /**
  * Declarations deliberately kept out of the barrel, as `computeSymbolKey` strings.
@@ -110,6 +112,19 @@ await new GuideCommand({
 	if (!isRecord(manifest)) throw new Error('Invalid package manifest: package.json')
 	const sources = createSourceManager({ files, modules: MODULES })
 	const readme = createGuide(requireValue(files['README.md'], 'Missing file: README.md'))
+
+	it('includes the native browser surface in the form guide scope', async () => {
+		const browser = await import('@src/browser')
+		const native = requireValue(sources.source('@orkestrel/form/browser'))
+		expect(native.surface().map((symbol) => symbol.name)).toContain('FormBinding')
+		expect(
+			rows.some((row) => row.source.surface().some((symbol) => symbol.name === 'FormBinding')),
+		).toBe(true)
+		expect(
+			browser.isFormBindingError(new browser.FormBindingError('CONTROL', 'Duplicate controls')),
+		).toBe(true)
+		expect(browser.isFormControl(undefined)).toBe(false)
+	})
 
 	it('imports only real exports in every root README ```ts fence', () => {
 		const fences = readme.fences().filter((fence) => fence.language === EXAMPLE_LANGUAGE)
