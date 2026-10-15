@@ -54,26 +54,27 @@ optional member and `plus` introducing its call-signature members, and a type al
 literal with a union's arms escaped as `\|`. An extended interface's name comes before `plus`,
 with the members it adds after.
 
-| API             | Kind      | Shape                                                                                                                                                                            | Summary                                                                                       |
-| --------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `FormSchema`    | interface | `{ name?, label?, help?, groups?, fields }`                                                                                                                                      | Describes everything a form asks.                                                             |
-| `FormGroup`     | interface | `{ name, label, help? }`                                                                                                                                                         | Represents a named section of a form.                                                         |
-| `FormField`     | type      | `TextField \| EditorField \| PasswordField \| NumberField \| DateField \| TimeField \| DatetimeField \| ColorField \| ConfirmField \| SelectField \| CheckboxField \| FileField` | Represents any field a schema can declare.                                                    |
-| `FieldBase`     | interface | `{ name, label?, help?, group?, hidden?, disabled?, locked?, rule?, meta? }`                                                                                                     | Declares what every field carries, whatever its control.                                      |
-| `FieldControl`  | type      | `'text' \| 'editor' \| 'password' \| 'number' \| 'date' \| 'time' \| 'datetime' \| 'color' \| 'confirm' \| 'select' \| 'checkbox' \| 'file'`                                     | Names the control a field presents to the person answering it.                                |
-| `FieldChoice`   | interface | `{ value, label, help?, disabled? }`                                                                                                                                             | Represents one option a `select` or `checkbox` field offers.                                  |
-| `TextField`     | interface | `FieldBase plus { control, default?, placeholder? }`                                                                                                                             | Represents a single line of text.                                                             |
-| `EditorField`   | interface | `FieldBase plus { control, default?, placeholder? }`                                                                                                                             | Represents text over many lines.                                                              |
-| `PasswordField` | interface | `FieldBase plus { control, mask? }`                                                                                                                                              | Represents a secret, obscured as it is typed.                                                 |
-| `NumberField`   | interface | `FieldBase plus { control, default?, placeholder? }`                                                                                                                             | Represents a number.                                                                          |
-| `DateField`     | interface | `FieldBase plus { control, default? }`                                                                                                                                           | Represents a calendar date, held as the control's own `YYYY-MM-DD` string.                    |
-| `TimeField`     | interface | `FieldBase plus { control, default? }`                                                                                                                                           | Represents a time of day, held as the control's own `HH:MM` string, with seconds optional.    |
-| `DatetimeField` | interface | `FieldBase plus { control, default? }`                                                                                                                                           | Represents a date and a time of day together, with no zone, held as the control's own string. |
-| `ColorField`    | interface | `FieldBase plus { control, default? }`                                                                                                                                           | Represents a color, held as the control's own six-digit `#rrggbb` string.                     |
-| `ConfirmField`  | interface | `FieldBase plus { control, default? }`                                                                                                                                           | Represents a single on/off box, holding a boolean.                                            |
-| `SelectField`   | interface | `FieldBase plus { control, choices, default?, open? }`                                                                                                                           | Represents one choice out of a list.                                                          |
-| `CheckboxField` | interface | `FieldBase plus { control, choices, default? }`                                                                                                                                  | Represents any number of choices out of a list, holding the checked values.                   |
-| `FileField`     | interface | `FieldBase plus { control, accept?, multiple? }`                                                                                                                                 | Represents one or more files, by name.                                                        |
+| API             | Kind      | Shape                                                                                                                                                                                         | Summary                                                                                       |
+| --------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `FormSchema`    | interface | `{ name?, label?, help?, groups?, fields }`                                                                                                                                                   | Describes everything a form asks.                                                             |
+| `FormGroup`     | interface | `{ name, label, help? }`                                                                                                                                                                      | Represents a named section of a form.                                                         |
+| `FormField`     | type      | `TextField \| EditorField \| PasswordField \| NumberField \| DateField \| TimeField \| DatetimeField \| ColorField \| ConfirmField \| SelectField \| CheckboxField \| ListField \| FileField` | Represents any field a schema can declare.                                                    |
+| `FieldBase`     | interface | `{ name, label?, help?, group?, hidden?, disabled?, locked?, rule?, meta? }`                                                                                                                  | Declares what every field carries, whatever its control.                                      |
+| `FieldControl`  | type      | `'text' \| 'editor' \| 'password' \| 'number' \| 'date' \| 'time' \| 'datetime' \| 'color' \| 'confirm' \| 'select' \| 'checkbox' \| 'list' \| 'file'`                                        | Names the control a field presents to the person answering it.                                |
+| `FieldChoice`   | interface | `{ value, label, help?, disabled? }`                                                                                                                                                          | Represents one option a `select` or `checkbox` field offers.                                  |
+| `TextField`     | interface | `FieldBase plus { control, default?, placeholder? }`                                                                                                                                          | Represents a single line of text.                                                             |
+| `EditorField`   | interface | `FieldBase plus { control, default?, placeholder? }`                                                                                                                                          | Represents text over many lines.                                                              |
+| `PasswordField` | interface | `FieldBase plus { control, mask? }`                                                                                                                                                           | Represents a secret, obscured as it is typed.                                                 |
+| `NumberField`   | interface | `FieldBase plus { control, default?, placeholder? }`                                                                                                                                          | Represents a number.                                                                          |
+| `DateField`     | interface | `FieldBase plus { control, default? }`                                                                                                                                                        | Represents a calendar date, held as the control's own `YYYY-MM-DD` string.                    |
+| `TimeField`     | interface | `FieldBase plus { control, default? }`                                                                                                                                                        | Represents a time of day, held as the control's own `HH:MM` string, with seconds optional.    |
+| `DatetimeField` | interface | `FieldBase plus { control, default? }`                                                                                                                                                        | Represents a date and a time of day together, with no zone, held as the control's own string. |
+| `ColorField`    | interface | `FieldBase plus { control, default? }`                                                                                                                                                        | Represents a color, held as the control's own six-digit `#rrggbb` string.                     |
+| `ConfirmField`  | interface | `FieldBase plus { control, default? }`                                                                                                                                                        | Represents a single on/off box, holding a boolean.                                            |
+| `SelectField`   | interface | `FieldBase plus { control, choices, default?, open? }`                                                                                                                                        | Represents one choice out of a list.                                                          |
+| `CheckboxField` | interface | `FieldBase plus { control, choices, default? }`                                                                                                                                               | Represents any number of choices out of a list, holding the checked values.                   |
+| `ListField`     | interface | `FieldBase plus { control, default? }`                                                                                                                                                        | Represents an ordered list of free-text strings.                                              |
+| `FileField`     | interface | `FieldBase plus { control, accept?, multiple? }`                                                                                                                                              | Represents one or more files, by name.                                                        |
 
 ### Answers and rules
 
@@ -496,6 +497,41 @@ const topics: CheckboxField = {
 }
 ```
 
+### list
+
+`ListField` holds an ordered array of free-text strings, including duplicates. `required` rejects
+absence and an empty array. `minimum` and `maximum` are nonnegative integer entry counts; the
+minimum cannot exceed `LIST_LIMIT`, and a required list cannot have a zero maximum. String rules
+check each entry. Their messages prefix the failing value, quoted with JSON escaping, and retain
+the rule name for native-message deduplication. Failures appear in rule order, then entry order.
+`custom` runs once against the whole array, after the named rules.
+
+Declare a recipient list with an email constraint.
+
+```ts
+import type { ListField } from '@orkestrel/form'
+
+const to: ListField = {
+	control: 'list',
+	name: 'to',
+	label: 'To',
+	rule: { required: true, maximum: 50, email: true },
+}
+```
+
+A browser list binds to one native `select multiple`. The page can add and remove options and
+dispatch native input or change events to import the selection. Document fills create missing
+options and order selected options to match the array, preserving repeated values. Disabled options
+and options in disabled groups do not contribute an answer. Each selected enabled value posts under
+the select's name in FormData. The closed `checkbox` field retains its declared vocabulary.
+
+Native reset restores the list's options, optgroups, and selection captured before its first
+projection, including authored options the page removed. It imports that restored selection into
+the document after clearing touch and pending work. For lists this is the authored selection even
+after acknowledgement; it can therefore differ from the acknowledged baseline and leave `dirty`
+true. A direct document `clear()` retains its baseline semantics. Other fields retain their
+acknowledged-reset behavior. Destroying the binding retains the live options and selections.
+
 ### file
 
 A file value is a list of names. `multiple` admits more than one, and without it a second name is
@@ -621,9 +657,8 @@ invents a control:
   admit a value the list does not offer. `choices` is data in the schema, so the search field, the
   ranking, and the menu belong to the renderer, and a list fetched while somebody types is the host
   building a new schema.
-- **An ordered set of tags** — `checkbox` over a fixed vocabulary, whose value keeps the order it
-  was filled in. Tags a person types freely are outside the document: `checkbox` admits a listed
-  value only, and no control holds a list of unlisted ones.
+- **An ordered set of tags** — `checkbox` over a fixed vocabulary, or `list` for free-text entries.
+  Both keep the order of the filled array; `list` also retains duplicates.
 - **A rating** — `select` over the fixed values, which is the radio group the catalog draws, or
   `number` with `minimum`, `maximum`, and `step` where the scale is continuous.
 - **A step in a sequence** — outside the document. A step indicator reports position rather than
@@ -635,18 +670,18 @@ A rule is data, not a closure. That is what lets a schema cross a wire and valid
 side exactly as it validated here — with the single exception of `custom`, which is a function and
 therefore does not travel.
 
-| Rule           | Operand          | What it measures                                                                                                                                  |
-| -------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `required`     | `true`           | That an answer exists at all. Presence only: `''`, `[]`, `false`, and `0` are answers and satisfy it.                                             |
-| `minimum`      | number or string | Characters for text, editor, and password; magnitude for number; chronology for `date`, `time`, and `datetime`; selections for checkbox and file. |
-| `maximum`      | number or string | The same measure as `minimum`, at the other end.                                                                                                  |
-| `step`         | number           | The interval a numeric value must land on, counted from `minimum` or from zero. Number only.                                                      |
-| `pattern`      | string           | Regular-expression source the whole value must match. String-valued controls only.                                                                |
-| `email`        | `true`           | That the whole value is an email address, per `EMAIL_PATTERN`.                                                                                    |
-| `url`          | `true`           | That the whole value is an absolute HTTP or HTTPS URL, per `URL_PATTERN`.                                                                         |
-| `integer`      | `true`           | That a number has no fractional part, or that a string is a base-ten integer.                                                                     |
-| `alphanumeric` | `true`           | That the whole value is ASCII letters and digits, per `ALPHANUMERIC_PATTERN`.                                                                     |
-| `custom`       | `FieldValidator` | Anything the rest cannot say. It runs last, on an absent value too, and it is the only rule that sees the rest of the form.                       |
+| Rule           | Operand          | What it measures                                                                                                                                         |
+| -------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `required`     | `true`           | Requires an entry for `list`; requires a present answer for other controls, including `''`, `[]`, `false`, and `0`.                                      |
+| `minimum`      | number or string | Characters for text, editor, and password; magnitude for number; chronology for `date`, `time`, and `datetime`; selections for checkbox, list, and file. |
+| `maximum`      | number or string | The same measure as `minimum`, at the other end.                                                                                                         |
+| `step`         | number           | The interval a numeric value must land on, counted from `minimum` or from zero. Number only.                                                             |
+| `pattern`      | string           | Regular-expression source the whole value must match. String-valued controls and each list entry.                                                        |
+| `email`        | `true`           | That the whole value or each list entry is an email address, per `EMAIL_PATTERN`.                                                                        |
+| `url`          | `true`           | That the whole value or each list entry is an absolute HTTP or HTTPS URL, per `URL_PATTERN`.                                                             |
+| `integer`      | `true`           | That a number has no fractional part, or that a string or each list entry is a base-ten integer.                                                         |
+| `alphanumeric` | `true`           | That the whole value or each list entry is ASCII letters and digits, per `ALPHANUMERIC_PATTERN`.                                                         |
+| `custom`       | `FieldValidator` | Anything the rest cannot say. It runs last, on an absent value too, and it is the only rule that sees the rest of the form.                              |
 
 The operand's type follows the control family. `minimum` and `maximum` take a number wherever the
 measure is a count or a magnitude, and take a string written in the control's own format wherever
@@ -680,9 +715,9 @@ formatMessage('required', undefined, { required: 'We need this one' }) // 'We ne
 ### How an answer is counted
 
 **`undefined` is the only absence.** A field is unanswered when `values` has no key for it, and
-answered otherwise. `''`, a string of spaces, `[]`, `false`, and `0` are all answers, so `required`
-is satisfied by every one of them. `required` asks whether an answer exists, never whether it says
-anything: a length rule is `minimum`, and a "must be ticked" rule is `custom`.
+answered otherwise. `''`, a string of spaces, `[]`, `false`, and `0` are all answers. `required`
+accepts every present answer except an empty `list`, which requires at least one entry. A length
+rule is `minimum`, and a "must be ticked" rule is `custom`.
 
 **This is not HTML's model, and the difference is deliberate.** A browser fails `required` on the
 exact empty string, so an empty text input is unanswered there and answered here. Neither model is
@@ -762,10 +797,8 @@ evaluateField(vat, undefined, { account: 'business' })
 evaluateField(vat, undefined, { account: 'personal' }) // []
 ```
 
-The same seam closes a list of addresses. `TextField` has no `multiple`, because that word already
-means a list of file names on `FileField` and one word cannot hold two value shapes. A field that
-takes several addresses is `text` plus a `custom` that splits the value and tests each part with the
-exported `EMAIL_PATTERN` — the same pattern the `email` rule uses, so the two agree by construction.
+Use a `list` with `email: true` for recipient arrays. A page retaining a comma-separated text field
+can still use `custom` to split and check that scalar value with `EMAIL_PATTERN`.
 
 ```ts
 import { evaluateField, EMAIL_PATTERN } from '@orkestrel/form'
@@ -911,7 +944,7 @@ group, a default its own control cannot hold, a rule on a control that cannot me
 above its maximum, an uncompilable pattern, or a breach of any named budget. It also reports the
 bounds no answer could satisfy: a required closed `select` with no enabled choice, a `checkbox` whose
 positive `minimum` exceeds its enabled-choice count, and a negative `maximum` on a control that
-measures a length or a count — `text`, `editor`, `password`, `checkbox`, or `file`. A required
+measures a length or a count — `text`, `editor`, `password`, `checkbox`, `list`, or `file`. A required
 `checkbox` alone remains satisfiable because `[]` is a present answer, `maximum: 0` on a `text` is
 satisfiable by `''`, and a negative `maximum` on a `number` is an ordinary value bound.
 
@@ -1549,6 +1582,8 @@ alone persists, accepts, or aborts it. A duplicate submission raises the binding
 error, creates no receipt, and leaves edits enabled. The form and submit actions carry `aria-busy`;
 their dimensions and enabled state stay native. A prevented submit or reset has no binding effect.
 An admitted reset calls the document's clear operation and prevents HTML default-value restoration.
+List controls then restore their captured authored options and selection as described under
+[List fields](#list).
 
 Neutral feedback uses owned spans carrying `data-form-feedback="field"`, each with a unique ID.
 Supply `feedback: new Map([['field', destination]])` to choose a parent; authored children remain.
@@ -1580,7 +1615,8 @@ for subsequent writes. A listener can refresh its presentation without dispatchi
 
 Map a native control to its presenting focus target through `presentations`. Leaving that target
 touches the native field; moving focus from the native control to its presentation does not. The
-mapping stops participating when the native control leaves the form. The presenting input's text
+mapping also directs summary links, invalid-submit focus, and feedback attributes to the presenter.
+It stops participating when the native control leaves the form. The presenting input's text
 does not become the native control's answer. A component still owns its selection, popup, focus
 forwarding, and native validation bubble behavior.
 
@@ -1598,6 +1634,45 @@ const binding = createFormBinding(element, model, {
 	},
 })
 ```
+
+### Bind Mail Compose recipients over Veneer Input tags
+
+Given a mounted Veneer `tags` instance, bind its native select and presenting input. The tags
+component commits free text with native input and change events. Initialize it before binding so
+the presenting input has no submitted name.
+
+```ts
+import { createForm } from '@orkestrel/form'
+import { createFormBinding } from '@orkestrel/form/browser'
+
+const select = tags.control
+const element = select.form
+if (element === null) throw new Error('Recipients require a form')
+const model = createForm({
+	fields: [
+		{
+			control: 'list',
+			name: select.name,
+			label: 'To',
+			default: Array.from(select.selectedOptions, (option) => option.value),
+			rule: { required: true, maximum: 50, email: true },
+		},
+	],
+})
+const binding = createFormBinding(element, model, {
+	presentations: new Map([[select, tags.input]]),
+	on: {
+		write: (control) => {
+			if (control === select) tags.refresh()
+		},
+		render: () => tags.refresh(),
+	},
+})
+```
+
+Read repeated recipients with `new FormData(element).getAll(select.name)`. On page teardown, destroy
+the binding before the tags component and the document. This replaces the closed-checkbox contact
+workaround and the scalar comma-splitting validator for recipient arrays.
 
 ### Keep a footer press stable
 
@@ -1973,7 +2048,8 @@ These invariants hold across [`src/core`](../src/core) and this guide.
    listener is that one settlement: the outer call returns it, `submit` still fires once, and nothing
    is evaluated after it.
 8. **`undefined` is the only absence.** A field is unanswered when `values` holds no key for it, and
-   answered otherwise, so `''`, whitespace, `[]`, `false`, and `0` all satisfy `required`. This is
+   answered otherwise. `required` accepts `''`, whitespace, `false`, and `0`; an empty `[]` passes
+   for `checkbox` and `file`, while `list` requires an entry. This is
    not HTML's model, which fails `required` on the exact empty string. A binding that wants HTML's
    answer projects at the binding — `fill(name, matchesAnswer(raw) ? raw : undefined)` — and core
    evaluation never applies that projection itself.
@@ -2040,7 +2116,7 @@ next change knows what it is reopening. `Layer` names who owns the concept, and 
 | Warnings and first-error-only modes    | host          | Every failure is an error and `errors` carries all of them in order. A severity axis, or a switch that reports only the first, is display policy applied over that list.                                                                                                              |
 | Server-error bags                      | host          | A map of field names to server messages is a loop over `invalidate`, which already holds one external failure per field and drops it when the field is refilled.                                                                                                                      |
 | Form-level validators                  | seam          | A rule about the form as a whole. `custom` already reads every answer, so the same check runs today attached to the field it would fail.                                                                                                                                              |
-| Address lists                          | seam          | `TextField` has no `multiple`: that word already means a list of file names on `FileField`, and one word cannot carry two value shapes. Several addresses is `custom` plus the exported `EMAIL_PATTERN`.                                                                              |
+| Address lists                          | seam          | `ListField` holds free-text arrays; its `email` rule checks every address and names failures.                                                                                                                                                                                         |
 | Group-level disable                    | seam          | `disable` takes no group argument. A host expands a group from the schema in one line, and a second way to name the same set is a second thing to keep consistent.                                                                                                                    |
 | Computed fields                        | host          | A field deriving its value from siblings would be a second writer of `values` and could disagree with `fill`. The host computes and fills, so one writer stays one writer.                                                                                                            |
 | Async and live choices                 | host          | `choices` is data in the schema. A list fetched or filtered while somebody types is the host building a new schema, which `parseForm` audits for it.                                                                                                                                  |

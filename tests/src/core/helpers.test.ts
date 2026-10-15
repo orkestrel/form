@@ -34,6 +34,10 @@ import {
 	matchesValue,
 	matchesValues,
 	serializeForm,
+	parseForm,
+	parseValue,
+	cloneFormField,
+	isFormField,
 } from '@src/core'
 import { attempt } from '@orkestrel/contract'
 import { roundTripJSON } from '@orkestrel/test'
@@ -59,6 +63,127 @@ import {
 	createTextBudgetSchema,
 	createTextPopulationSchema,
 } from '../../setup.js'
+
+describe('open list', () => {
+	it('admits bounded free strings, preserves duplicates, and owns defaults across the wire', () => {
+		const defaults = ['harbor@newclient.test', 'harbor@newclient.test']
+		const field: FormField = { control: 'list', name: 'to', default: defaults }
+		expect(matchesField(field, defaults)).toBe(true)
+		expect(matchesField(field, 'harbor@newclient.test')).toBe(false)
+		expect(matchesField(field, [3])).toBe(false)
+		expect(
+			matchesField(
+				field,
+				Array.from({ length: LIST_LIMIT + 1 }, () => 'a'),
+			),
+		).toBe(false)
+		expect(matchesField(field, ['a'.repeat(STRING_LIMIT + 1)])).toBe(false)
+		expect(
+			matchesField(
+				field,
+				Array.from({ length: LIST_LIMIT }, () => 'a'),
+			),
+		).toBe(true)
+		expect(isFormField(field)).toBe(true)
+		expect(isFormField({ ...field, choices: [] })).toBe(false)
+		expect(parseValue(field, defaults)).toEqual(defaults)
+		const cloned = cloneFormField(field)
+		const schema = parseForm(serializeForm({ fields: [field] }))
+		expect(schema).toEqual({ fields: [field] })
+		expect(computeDefaults({ fields: [field] })).toEqual({ to: defaults })
+		defaults.push('later@example.test')
+		expect(cloned).toEqual({
+			control: 'list',
+			name: 'to',
+			default: ['harbor@newclient.test', 'harbor@newclient.test'],
+		})
+		expect(schema?.fields[0]).toEqual(cloned)
+	})
+
+	it('requires an entry and counts entries at inclusive bounds without changing checkbox', () => {
+		const field: FormField = {
+			control: 'list',
+			name: 'to',
+			rule: { required: true, minimum: 2, maximum: 3 },
+		}
+		expect(evaluateField(field, [], {}).map((error) => error.rule)).toEqual(['required', 'minimum'])
+		expect(evaluateField(field, undefined, {}).map((error) => error.rule)).toEqual(['required'])
+		expect(evaluateField(field, ['long address'], {}).map((error) => error.rule)).toEqual([
+			'minimum',
+		])
+		expect(evaluateField(field, ['a', 'b'], {})).toEqual([])
+		expect(evaluateField(field, ['a', 'b', 'c'], {})).toEqual([])
+		expect(evaluateField(field, ['a', 'b', 'c', 'd'], {}).map((error) => error.rule)).toEqual([
+			'maximum',
+		])
+		expect(
+			evaluateField(
+				{ control: 'checkbox', name: 'closed', choices: [], rule: { required: true } },
+				[],
+				{},
+			),
+		).toEqual([])
+		expect(matchesField({ control: 'checkbox', name: 'closed', choices: [] }, ['unlisted'])).toBe(
+			false,
+		)
+	})
+
+	it('reports each failing entry in rule order with resolved messages and one whole-list custom call', () => {
+		const calls: unknown[] = []
+		const field: FormField = {
+			control: 'list',
+			name: 'to',
+			rule: {
+				pattern: '^harbor',
+				email: true,
+				custom: (value) => {
+					calls.push(value)
+					return 'List review'
+				},
+			},
+		}
+		expect(
+			evaluateField(
+				field,
+				['bad', 'harbor@newclient.test', 'other'],
+				{},
+				{ email: 'Enter an address' },
+			),
+		).toEqual([
+			{ field: 'to', rule: 'pattern', message: '"bad": Must match the required format' },
+			{ field: 'to', rule: 'pattern', message: '"other": Must match the required format' },
+			{ field: 'to', rule: 'email', message: '"bad": Enter an address' },
+			{ field: 'to', rule: 'email', message: '"other": Enter an address' },
+			{ field: 'to', message: 'List review' },
+		])
+		expect(calls).toEqual([['bad', 'harbor@newclient.test', 'other']])
+	})
+
+	it('refuses impossible counts, non-count bounds, and invalid entry patterns', () => {
+		expect(
+			auditSchema({
+				fields: [{ control: 'list', name: 'to', rule: { required: true, maximum: 0 } }],
+			}),
+		).not.toEqual([])
+		expect(
+			auditSchema({ fields: [{ control: 'list', name: 'to', rule: { minimum: 1.5 } }] }),
+		).not.toEqual([])
+		expect(
+			auditSchema({ fields: [{ control: 'list', name: 'to', rule: { minimum: LIST_LIMIT + 1 } }] }),
+		).not.toEqual([])
+		expect(
+			auditSchema({ fields: [{ control: 'list', name: 'to', rule: { minimum: '1' } }] }),
+		).not.toEqual([])
+		expect(
+			auditSchema({ fields: [{ control: 'list', name: 'to', rule: { pattern: '[' } }] }),
+		).not.toEqual([])
+		expect(
+			auditSchema({
+				fields: [{ control: 'list', name: 'to', rule: { minimum: 0, maximum: 2, email: true } }],
+			}),
+		).toEqual([])
+	})
+})
 
 describe('createFieldError', () => {
 	const field: FormField = { control: 'text', name: 'nickname' }
@@ -1369,7 +1494,7 @@ describe('auditSchema', () => {
 })
 
 describe('control and rule matrix', () => {
-	it('matches the literal 12 by 9 applicability specification', () => {
+	it('matches the literal control and rule applicability specification', () => {
 		for (const control of [
 			'text',
 			'editor',
@@ -1382,6 +1507,7 @@ describe('control and rule matrix', () => {
 			'confirm',
 			'select',
 			'checkbox',
+			'list',
 			'file',
 		] satisfies readonly FieldControl[]) {
 			for (const rule of [
@@ -1404,7 +1530,7 @@ describe('control and rule matrix', () => {
 		}
 	})
 
-	it('evaluates all 12 by 9 applicable and inert pairs from one table', () => {
+	it('evaluates the applicable and inert pairs from one table', () => {
 		const pairs: string[] = []
 
 		for (const control of FIELD_CONTROLS) {

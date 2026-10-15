@@ -6,6 +6,227 @@ import { describe, expect, it } from 'vitest'
 import { userEvent } from 'vitest/browser'
 import { createNativeFormFixture, editNativeAnswer, readNativeInput } from '../../setupBrowser.js'
 
+describe('open list reset and presentation', () => {
+	it('does not emit write for an unchanged list reset', () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ control: 'list', name: 'to', default: ['a'] }] },
+			'<form><select multiple name="to"><option selected value="a">A</option></select></form>',
+		)
+		try {
+			const writes: unknown[] = []
+			fixture.binding.emitter.on('write', (control) => writes.push(control))
+			fixture.element.reset()
+			expect(writes).toHaveLength(0)
+			fixture.document.fill('to', ['b'])
+			writes.length = 0
+			fixture.element.reset()
+			expect(writes).toHaveLength(1)
+		} finally {
+			fixture.destroy()
+		}
+	})
+
+	it('restores authored disabled selections on reset', () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ control: 'list', name: 'to' }] },
+			'<form><select multiple name="to"><option selected disabled value="a">A</option><optgroup disabled label="disabled"><option selected value="b">B</option></optgroup><option selected value="c">C</option></select></form>',
+		)
+		try {
+			fixture.element.reset()
+			const select = fixture.element.querySelector('select')
+			if (select === null) throw new Error('Missing select')
+			expect(fixture.document.values.to).toEqual(['c'])
+			expect(new FormData(fixture.element).getAll('to')).toEqual(['c'])
+			expect(Array.from(select.options, (option) => option.selected)).toEqual([true, true, true])
+		} finally {
+			fixture.destroy()
+		}
+	})
+
+	it('retains summary IDs on external presenting inputs across refresh', () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ control: 'list', name: 'to', rule: { required: true } }] },
+			'<form><select name="to" multiple hidden></select><div data-summary></div></form><input data-presentation>',
+		)
+		fixture.binding.destroy()
+		const select = fixture.element.querySelector('select')
+		const presentation = fixture.host.querySelector('input')
+		const summary = fixture.element.querySelector('div')
+		if (select === null || presentation === null || summary === null)
+			throw new Error('Missing controls')
+		const binding = createFormBinding(fixture.element, fixture.document, {
+			presentations: new Map([[select, presentation]]),
+			summary,
+		})
+		try {
+			fixture.document.touch('to')
+			const id = presentation.id
+			expect(id).not.toBe('')
+			binding.refresh()
+			expect(presentation.id).toBe(id)
+			expect(summary.querySelector('a')?.hash).toBe(`#${id}`)
+			fixture.element.requestSubmit()
+			expect(document.activeElement).toBe(presentation)
+			select.remove()
+			binding.refresh()
+			expect(presentation.id).toBe('')
+			expect(presentation.hasAttribute('aria-invalid')).toBe(false)
+		} finally {
+			binding.destroy()
+			fixture.destroy()
+		}
+	})
+
+	it('does not reset a select moved to another form by a clear listener', () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ control: 'list', name: 'to' }] },
+			'<form><select multiple name="to"><option selected value="a">A</option></select></form><form data-other></form>',
+		)
+		try {
+			const select = fixture.element.querySelector('select')
+			const other = fixture.host.querySelector('[data-other]')
+			if (select === null || other === null) throw new Error('Missing controls')
+			fixture.document.fill('to', ['b'])
+			fixture.document.emitter.on('clear', () => other.append(select))
+			fixture.element.reset()
+			expect(select.form).toBe(other)
+			expect(Array.from(select.selectedOptions, (option) => option.value)).toEqual(['b'])
+		} finally {
+			fixture.destroy()
+		}
+	})
+})
+
+describe('open list binding', () => {
+	it('discovers dynamic options and posts repeated values without a closed vocabulary', () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ control: 'list', name: 'to', rule: { email: true } }] },
+			'<form><select multiple name="to"></select></form>',
+		)
+		try {
+			const select = requireValue(fixture.element.querySelector('select'))
+			select.add(new Option('Contact', 'contact@example.test', true, true))
+			select.add(new Option('Harbor', 'harbor@newclient.test', true, true))
+			select.dispatchEvent(new Event('input', { bubbles: true }))
+			expect(fixture.document.values.to).toEqual(['contact@example.test', 'harbor@newclient.test'])
+			expect(fixture.document.errors).toEqual([])
+			expect(new FormData(fixture.element).getAll('to')).toEqual([
+				'contact@example.test',
+				'harbor@newclient.test',
+			])
+			select.options[0]?.remove()
+			select.dispatchEvent(new Event('change', { bubbles: true }))
+			expect(fixture.document.values.to).toEqual(['harbor@newclient.test'])
+			fixture.element.requestSubmit()
+			expect(fixture.document.pending?.values.to).toEqual(['harbor@newclient.test'])
+		} finally {
+			fixture.destroy()
+		}
+	})
+
+	it('projects absent options, order, and duplicate entries before the write hook', () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ control: 'list', name: 'to' }] },
+			'<form><select multiple name="to"><option value="a">A</option><option value="b">B</option></select></form>',
+		)
+		try {
+			const writes = createRecorder<readonly [readonly FormDataEntryValue[]]>()
+			fixture.binding.emitter.on('write', () =>
+				writes.handler(new FormData(fixture.element).getAll('to')),
+			)
+			fixture.document.fill('to', ['b', 'a', 'b', 'free'])
+			expect(writes.calls).toEqual([[['b', 'a', 'b', 'free']]])
+			fixture.binding.read()
+			expect(fixture.document.values.to).toEqual(['b', 'a', 'b', 'free'])
+			fixture.document.fill('to', ['a'])
+			expect(new FormData(fixture.element).getAll('to')).toEqual(['a'])
+		} finally {
+			fixture.destroy()
+		}
+	})
+
+	it('restores authored options, groups, and selection on reset after additions and removals', () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ control: 'list', name: 'to', default: ['contact@example.test'] }] },
+			'<form><select multiple name="to"><optgroup label="Contacts"><option value="contact@example.test" selected>Contact</option><option value="other@example.test">Other</option></optgroup></select></form>',
+		)
+		try {
+			const select = requireValue(fixture.element.querySelector('select'))
+			select.replaceChildren(new Option('Harbor', 'harbor@newclient.test', true, true))
+			fixture.binding.read()
+			const receipt = fixture.document.prepare()
+			if (!receipt.success) throw new Error('Expected valid recipients')
+			fixture.document.accept(receipt.value)
+			fixture.element.reset()
+			expect(select.querySelector('optgroup')?.label).toBe('Contacts')
+			expect(
+				Array.from(select.options, (option) => [
+					option.text,
+					option.value,
+					option.selected,
+					option.defaultSelected,
+				]),
+			).toEqual([
+				['Contact', 'contact@example.test', true, true],
+				['Other', 'other@example.test', false, false],
+			])
+			expect(fixture.document.values.to).toEqual(['contact@example.test'])
+			expect(new FormData(fixture.element).getAll('to')).toEqual(['contact@example.test'])
+			expect(fixture.document.touched.size).toBe(0)
+		} finally {
+			fixture.destroy()
+		}
+	})
+
+	it('links and touches the presentation and shows each required, count, and entry failure once', async () => {
+		const fixture = createNativeFormFixture(
+			{
+				fields: [
+					{ control: 'list', name: 'to', rule: { required: true, maximum: 1, email: true } },
+				],
+			},
+			'<form><select multiple name="to" hidden></select><input aria-describedby="hint"><button type="button">Leave</button><div data-summary></div></form>',
+		)
+		fixture.binding.destroy()
+		const select = requireValue(fixture.element.querySelector('select'))
+		const input = requireValue(fixture.element.querySelector('input'))
+		const summary = requireValue(fixture.element.querySelector('div'))
+		const binding = createFormBinding(fixture.element, fixture.document, {
+			presentations: new Map([[select, input]]),
+			summary,
+		})
+		try {
+			input.focus()
+			await userEvent.tab()
+			expect(fixture.document.touched.has('to')).toBe(true)
+			expect(fixture.host.querySelector('[data-form-feedback]')?.textContent).toBe(
+				'This field is required',
+			)
+			expect(summary.querySelectorAll('li')).toHaveLength(1)
+			const link = requireValue(summary.querySelector('a'))
+			expect(link.hash).toBe(`#${input.id}`)
+			await userEvent.click(link)
+			expect(document.activeElement).toBe(input)
+			expect(input.getAttribute('aria-invalid')).toBe('true')
+			expect(input.getAttribute('aria-describedby')).toContain('hint form-feedback-')
+			select.add(new Option('bad', 'bad', true, true))
+			select.add(new Option('other', 'other', true, true))
+			select.dispatchEvent(new Event('input', { bubbles: true }))
+			expect(fixture.host.querySelector('[data-form-feedback]')?.textContent).toBe(
+				'Must be at most 1\n"bad": Must be a valid email address\n"other": Must be a valid email address',
+			)
+			expect(summary.querySelectorAll('li')).toHaveLength(3)
+			fixture.document.fill('to', ['harbor@newclient.test'])
+			expect(select.validity.valid).toBe(true)
+			expect(input.hasAttribute('aria-invalid')).toBe(false)
+		} finally {
+			binding.destroy()
+			expect(input.getAttribute('aria-describedby')).toBe('hint')
+			fixture.destroy()
+		}
+	})
+})
+
 describe('native binding', () => {
 	it('preserves explicit fills queued by a write listener during mutation reconciliation', async () => {
 		const fixture = createNativeFormFixture(

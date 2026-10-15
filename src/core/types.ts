@@ -30,6 +30,7 @@ export type FieldControl =
 	| 'confirm'
 	| 'select'
 	| 'checkbox'
+	| 'list'
 	| 'file'
 
 /**
@@ -37,7 +38,7 @@ export type FieldControl =
  *
  * @remarks
  * The variant follows the control: text-like controls hold a `string`, `number` holds a
- * `number`, `confirm` holds a `boolean`, and `checkbox` holds its checked values as a
+ * `number`, `confirm` holds a `boolean`, and `checkbox`, `list`, and `file` hold a
  * `readonly string[]`.
  */
 export type FieldValue = string | number | boolean | readonly string[]
@@ -128,11 +129,12 @@ export type FieldValidator = (value: FieldValue | undefined, values: FormValues)
  * `minimum` and `maximum` measure whatever the control makes countable: characters for
  * `text`, `editor`, and `password`; magnitude for `number`; chronology for `date`, `time`,
  * and `datetime`, whose operand is a string written in that control's own format; and the
- * number of selections for `checkbox` and `file`.
+ * number of entries for `checkbox`, `list`, and `file`.
  *
  * `step` is the interval a numeric value must land on. `pattern` is regular-expression
  * source. `email`, `url`, `integer`, and `alphanumeric` each assert one shape over the whole
- * value. `custom` runs last and is the only rule that sees the rest of the form.
+ * value, or each entry of a `list`. `required` requires an entry for `list` and presence
+ * for other controls. `custom` runs last and is the only rule that sees the rest of the form.
  *
  * @example
  * ```ts
@@ -294,6 +296,26 @@ export interface CheckboxField extends FieldBase {
 }
 
 /**
+ * Represents an ordered list of free-text strings.
+ *
+ * @remarks
+ * `required` requires at least one entry. `minimum` and `maximum` count entries.
+ * `pattern`, `email`, `url`, `integer`, and `alphanumeric` check each entry and name
+ * the failing value in its message. `custom` checks the whole list. Duplicates are retained.
+ *
+ * @example
+ * ```ts
+ * const to: ListField = {
+ * 	control: 'list', name: 'to', rule: { required: true, email: true },
+ * }
+ * ```
+ */
+export interface ListField extends FieldBase {
+	readonly control: 'list'
+	readonly default?: readonly string[]
+}
+
+/**
  * Represents one or more files, by name.
  *
  * @remarks
@@ -332,6 +354,7 @@ export type FormField =
 	| ConfirmField
 	| SelectField
 	| CheckboxField
+	| ListField
 	| FileField
 
 /**

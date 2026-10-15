@@ -193,6 +193,17 @@ export const RULE_APPLICABILITY: Readonly<
 		integer: false,
 		alphanumeric: false,
 	},
+	list: {
+		required: true,
+		minimum: true,
+		maximum: true,
+		step: false,
+		pattern: true,
+		email: true,
+		url: true,
+		integer: true,
+		alphanumeric: true,
+	},
 	file: {
 		required: true,
 		minimum: true,
@@ -229,6 +240,7 @@ export const MATRIX_FIELDS: Readonly<Record<FieldControl, FormField>> = {
 			{ value: 'two', label: 'Two' },
 		],
 	},
+	list: { control: 'list', name: 'list' },
 	file: { control: 'file', name: 'file', multiple: true },
 }
 
@@ -244,6 +256,7 @@ export const MATRIX_VALUES: Readonly<Record<FieldControl, FieldValue>> = {
 	confirm: true,
 	select: 'choice',
 	checkbox: ['one'],
+	list: ['one'],
 	file: ['one.txt'],
 }
 
@@ -269,6 +282,7 @@ export function createMinimumCase(
 		case 'datetime':
 			return [{ minimum: '2026-08-15T09:30' }, '2026-08-15T09:30', '2026-08-15T09:29']
 		case 'checkbox':
+		case 'list':
 			return [{ minimum: 2 }, ['one', 'two'], ['one']]
 		case 'file':
 			return [{ minimum: 2 }, ['one.txt', 'two.txt'], ['one.txt']]
@@ -296,6 +310,7 @@ export function createMaximumCase(
 		case 'datetime':
 			return [{ maximum: '2026-08-15T09:30' }, '2026-08-15T09:30', '2026-08-15T09:31']
 		case 'checkbox':
+		case 'list':
 			return [{ maximum: 1 }, ['one'], ['one', 'two']]
 		case 'file':
 			return [{ maximum: 1 }, ['one.txt'], ['one.txt', 'two.txt']]
@@ -310,6 +325,14 @@ export function createMatrixCase(
 	control: FieldControl,
 	rule: FieldRuleName,
 ): readonly [FieldRule, FieldValue | undefined, FieldValue | undefined] {
+	if (control === 'list' && ['pattern', 'email', 'url', 'integer', 'alphanumeric'].includes(rule)) {
+		const [constraint, valid, invalid] = createMatrixCase('text', rule)
+		return [
+			constraint,
+			typeof valid === 'string' ? [valid] : undefined,
+			typeof invalid === 'string' ? [invalid] : undefined,
+		]
+	}
 	switch (rule) {
 		case 'required':
 			return [{ required: true }, MATRIX_VALUES[control], undefined]

@@ -59,6 +59,13 @@ export function cloneFormField(field: FormField): FormField {
 				choices: cloneChoices(field.choices),
 				...(field.default === undefined ? {} : { default: cloneValue(field.default) }),
 			})
+		case 'list':
+			return Object.freeze({
+				...field,
+				...rule,
+				...meta,
+				...(field.default === undefined ? {} : { default: cloneValue(field.default) }),
+			})
 		case 'file':
 			return Object.freeze({
 				...field,

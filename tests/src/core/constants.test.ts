@@ -38,6 +38,7 @@ describe('core constants', () => {
 			'confirm',
 			'select',
 			'checkbox',
+			'list',
 			'file',
 		])
 		expect(FORM_STATUSES).toStrictEqual(['editing', 'settled', 'abandoned'])

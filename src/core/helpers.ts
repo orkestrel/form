@@ -161,6 +161,8 @@ export function matchesField(field: FormField, value: unknown): value is FieldVa
 				) &&
 				new Set(entries).size === entries.length
 			)
+		case 'list':
+			return entries !== undefined
 		case 'file':
 			return entries !== undefined && (field.multiple === true || entries.length <= 1)
 	}
@@ -173,7 +175,7 @@ export function matchesField(field: FormField, value: unknown): value is FieldVa
  * Bind with `fill(name, matchesAnswer(raw) ? raw : undefined)`. This projection treats an absent
  * value and a string containing only whitespace as unanswered. Every other field value is an
  * answer, including an empty list, `false`, and zero. Core evaluation does not use this projection:
- * its `required` rule remains presence-only.
+ * its `required` rule remains presence-only except that `list` requires an entry.
  *
  * @param value - The raw field value, or absence.
  * @returns True if the binding preserves the value as an answer; false otherwise.
@@ -241,7 +243,7 @@ export function evaluateField(
 	const errors: FieldError[] = []
 	const rule = field.rule
 
-	if (value === undefined) {
+	if (value === undefined || (field.control === 'list' && isArray(value) && value.length === 0)) {
 		if (rule?.required === true && appliesRule(field.control, 'required')) {
 			errors.push(createFieldError(field, 'required', undefined, messages))
 		}
@@ -267,6 +269,7 @@ export function evaluateField(
 				failed = isString(value) && isString(rule.minimum) && value < rule.minimum
 				break
 			case 'checkbox':
+			case 'list':
 			case 'file':
 				failed = isArray(value) && isFiniteNumber(rule.minimum) && value.length < rule.minimum
 				break
@@ -299,6 +302,7 @@ export function evaluateField(
 				failed = isString(value) && isString(rule.maximum) && value > rule.maximum
 				break
 			case 'checkbox':
+			case 'list':
 			case 'file':
 				failed = isArray(value) && isFiniteNumber(rule.maximum) && value.length > rule.maximum
 				break
@@ -327,43 +331,47 @@ export function evaluateField(
 		}
 	}
 
-	if (isString(value)) {
-		if (rule.pattern !== undefined && appliesRule(field.control, 'pattern')) {
-			const pattern = rule.pattern
-
-			if (pattern.length > PATTERN_LIMIT) {
-				errors.push(createFieldError(field, 'pattern', undefined, messages))
-			} else {
-				const outcome = attempt(() => new RegExp(pattern).test(value))
-
-				if (!outcome.success || !outcome.value) {
-					errors.push(createFieldError(field, 'pattern', undefined, messages))
+	const entries = isString(value)
+		? [value]
+		: field.control === 'list' && isArray(value)
+			? value
+			: []
+	for (const constraint of ['pattern', 'email', 'url', 'alphanumeric', 'integer'] as const) {
+		if (!appliesRule(field.control, constraint)) continue
+		for (const entry of entries) {
+			let failed = false
+			switch (constraint) {
+				case 'pattern': {
+					const pattern = rule.pattern
+					if (pattern !== undefined) {
+						const outcome = attempt(
+							() => pattern.length <= PATTERN_LIMIT && new RegExp(pattern).test(entry),
+						)
+						failed = !outcome.success || !outcome.value
+					}
+					break
 				}
+				case 'email':
+					failed = rule.email === true && !EMAIL_PATTERN.test(entry)
+					break
+				case 'url':
+					failed = rule.url === true && !URL_PATTERN.test(entry)
+					break
+				case 'alphanumeric':
+					failed = rule.alphanumeric === true && !ALPHANUMERIC_PATTERN.test(entry)
+					break
+				case 'integer':
+					failed = rule.integer === true && !INTEGER_PATTERN.test(entry)
+					break
 			}
-		}
-
-		if (rule.email === true && appliesRule(field.control, 'email') && !EMAIL_PATTERN.test(value)) {
-			errors.push(createFieldError(field, 'email', undefined, messages))
-		}
-
-		if (rule.url === true && appliesRule(field.control, 'url') && !URL_PATTERN.test(value)) {
-			errors.push(createFieldError(field, 'url', undefined, messages))
-		}
-
-		if (
-			rule.alphanumeric === true &&
-			appliesRule(field.control, 'alphanumeric') &&
-			!ALPHANUMERIC_PATTERN.test(value)
-		) {
-			errors.push(createFieldError(field, 'alphanumeric', undefined, messages))
-		}
-
-		if (
-			rule.integer === true &&
-			appliesRule(field.control, 'integer') &&
-			!INTEGER_PATTERN.test(value)
-		) {
-			errors.push(createFieldError(field, 'integer', undefined, messages))
+			if (failed) {
+				const error = createFieldError(field, constraint, undefined, messages)
+				errors.push(
+					field.control === 'list'
+						? Object.freeze({ ...error, message: `${JSON.stringify(entry)}: ${error.message}` })
+						: error,
+				)
+			}
 		}
 	}
 
@@ -432,6 +440,7 @@ export function computeDefaults(schema: FormSchema): FormValues {
 	for (const field of schema.fields) {
 		switch (field.control) {
 			case 'checkbox':
+			case 'list':
 				if (field.default !== undefined) {
 					defineEntry(defaults, field.name, cloneValue(field.default))
 				}
@@ -660,6 +669,9 @@ export function serializeForm(schema: FormSchema): JSONRecord {
 				})
 				if (field.default !== undefined) entry.default = field.default
 				break
+			case 'list':
+				if (field.default !== undefined) entry.default = field.default
+				break
 			case 'file':
 				if (field.accept !== undefined) entry.accept = field.accept
 				if (field.multiple !== undefined) entry.multiple = field.multiple
@@ -865,6 +877,7 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 			case 'confirm':
 			case 'select':
 			case 'checkbox':
+			case 'list':
 				if (field.default !== undefined && !matchesField(field, field.default)) {
 					faults.push(`Field "${field.name}" has an invalid default`)
 				}
@@ -910,6 +923,20 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 
 		const rule = field.rule
 		if (rule === undefined) continue
+
+		if (field.control === 'list') {
+			for (const bound of [rule.minimum, rule.maximum]) {
+				if (isFiniteNumber(bound) && (!isInteger(bound) || bound < 0)) {
+					faults.push(`Field "${field.name}" has a count that is not a nonnegative integer`)
+				}
+			}
+			if (isFiniteNumber(rule.minimum) && rule.minimum > LIST_LIMIT) {
+				faults.push(`Field "${field.name}" has minimum greater than ${LIST_LIMIT}`)
+			}
+			if (rule.required === true && isFiniteNumber(rule.maximum) && rule.maximum < 1) {
+				faults.push(`Field "${field.name}" is required but permits no entries`)
+			}
+		}
 
 		const temporal =
 			field.control === 'date' || field.control === 'time' || field.control === 'datetime'

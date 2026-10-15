@@ -236,6 +236,32 @@ await new GuideCommand({
 	// values that fence's comments claim. A fence documenting a value the code contradicts
 	// fails here; the earlier name resolution would pass it.
 	describe('form.md fences', () => {
+		it('validates free-text recipient arrays through the list field', () => {
+			const model = createForm({
+				fields: [
+					{
+						control: 'list',
+						name: 'to',
+						label: 'To',
+						rule: { required: true, maximum: 50, email: true },
+					},
+				],
+			})
+			try {
+				model.fill('to', ['harbor@newclient.test'])
+				expect(model.errors).toEqual([])
+				model.fill('to', ['bad'])
+				expect(model.errors).toEqual([
+					{ field: 'to', rule: 'email', message: '"bad": Must be a valid email address' },
+				])
+				model.fill('to', [])
+				expect(model.errors).toEqual([
+					{ field: 'to', rule: 'required', message: 'This field is required' },
+				])
+			} finally {
+				model.destroy()
+			}
+		})
 		it('acknowledges an earlier snapshot while later edits remain dirty', () => {
 			const form = createForm({ fields: [{ control: 'text', name: 'name', default: 'Opening' }] })
 			form.fill('name', 'A')

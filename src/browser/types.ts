@@ -20,7 +20,7 @@ export type FormBindingEventMap = {
 export interface FormBindingOptions {
 	readonly feedback?: ReadonlyMap<string, HTMLElement>
 	readonly summary?: HTMLElement
-	/** Maps native controls to focus targets whose departure touches the represented field. */
+	/** Maps native controls to feedback and summary focus targets whose departure touches the field. */
 	readonly presentations?: ReadonlyMap<FormControl, HTMLElement>
 	/** Defers blur touch until a same-form button's primary pointer press finishes. Default: false. */
 	readonly defer?: boolean

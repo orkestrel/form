@@ -23,7 +23,9 @@ export function matchesFormControls(field: FormField, controls: readonly FormCon
 		if (control instanceof HTMLSelectElement) {
 			return (
 				controls.length === 1 &&
-				(control.multiple ? field.control === 'checkbox' : field.control === 'select')
+				(control.multiple
+					? field.control === 'checkbox' || field.control === 'list'
+					: field.control === 'select')
 			)
 		}
 		switch (field.control) {
@@ -130,7 +132,11 @@ export function readFormControls(
 	const first = controls[0]
 	if (first === undefined) return undefined
 	let value: FieldValue | undefined
-	if (field.control === 'checkbox') {
+	if (field.control === 'list' && first instanceof HTMLSelectElement) {
+		value = Array.from(first.selectedOptions)
+			.filter((option) => !option.matches(':disabled'))
+			.map((option) => option.value)
+	} else if (field.control === 'checkbox') {
 		value =
 			first instanceof HTMLSelectElement
 				? Array.from(first.selectedOptions, (option) => option.value)

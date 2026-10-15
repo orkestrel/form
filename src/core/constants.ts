@@ -13,6 +13,7 @@ export const FIELD_CONTROLS: readonly FieldControl[] = Object.freeze([
 	'confirm',
 	'select',
 	'checkbox',
+	'list',
 	'file',
 ])
 
@@ -46,6 +47,7 @@ export const FIELD_KEYS: Readonly<Record<FieldControl, readonly string[]>> = Obj
 	confirm: Object.freeze([...FIELD_BASE_KEYS, 'default']),
 	select: Object.freeze([...FIELD_BASE_KEYS, 'choices', 'default', 'open']),
 	checkbox: Object.freeze([...FIELD_BASE_KEYS, 'choices', 'default']),
+	list: Object.freeze([...FIELD_BASE_KEYS, 'default']),
 	file: Object.freeze([...FIELD_BASE_KEYS, 'accept', 'multiple']),
 })
 

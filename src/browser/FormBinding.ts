@@ -30,6 +30,8 @@ export class FormBinding implements FormBindingInterface {
 	readonly #unreadable = new Set<string>()
 	readonly #names = new Map<FormControl, string>()
 	readonly #readings = new Map<FormControl, string>()
+	readonly #lists = new Map<HTMLSelectElement, HTMLSelectElement>()
+	readonly #resets = new Map<HTMLSelectElement, readonly string[]>()
 	readonly #deferred = new Set<string>()
 	readonly #refresh = this.#onState.bind(this)
 	readonly #fill = this.#onFill.bind(this)
@@ -230,6 +232,8 @@ export class FormBinding implements FormBindingInterface {
 		this.#feedback.clear()
 		this.#names.clear()
 		this.#readings.clear()
+		this.#lists.clear()
+		this.#resets.clear()
 		this.#unreadable.clear()
 		this.#logical.clear()
 		this.#controls = new Map()
@@ -429,6 +433,12 @@ export class FormBinding implements FormBindingInterface {
 				this.#attribute(control, 'aria-invalid', visible && message !== '' ? 'true' : null)
 				if (feedback !== undefined)
 					this.#description(control, feedback.id, visible && message !== '')
+				const presentation = this.#options?.presentations?.get(control)
+				if (presentation !== undefined) {
+					this.#attribute(presentation, 'aria-invalid', visible && message !== '' ? 'true' : null)
+					if (feedback !== undefined)
+						this.#description(presentation, feedback.id, visible && message !== '')
+				}
 			}
 		}
 		this.#paintSummary(
@@ -452,6 +462,19 @@ export class FormBinding implements FormBindingInterface {
 	}
 
 	#metadata(field: FormField, control: FormControl): void {
+		if (
+			field.control === 'list' &&
+			control instanceof HTMLSelectElement &&
+			!this.#lists.has(control)
+		) {
+			const snapshot = control.cloneNode(true)
+			if (snapshot instanceof HTMLSelectElement) {
+				for (const [index, option] of Array.from(snapshot.options).entries()) {
+					option.selected = control.options[index]?.selected ?? false
+				}
+				this.#lists.set(control, snapshot)
+			}
+		}
 		if (this.#logical.has(field.name)) this.#attribute(control, 'disabled', '')
 		else this.#releaseAttribute(control, 'disabled')
 		if (
@@ -526,6 +549,34 @@ export class FormBinding implements FormBindingInterface {
 				control.checked = checked
 				changed = true
 			}
+		} else if (control instanceof HTMLSelectElement && field.control === 'list') {
+			const remaining = Array.from(control.options).filter((option) => !option.matches(':disabled'))
+			const selected: HTMLOptionElement[] = []
+			for (const entry of Array.isArray(value) ? value : []) {
+				const index = remaining.findIndex((option) => option.value === entry)
+				let option = index < 0 ? undefined : remaining.splice(index, 1)[0]
+				if (option === undefined) {
+					option = control.ownerDocument.createElement('option')
+					option.value = entry
+					option.text = entry
+					control.append(option)
+					changed = true
+				}
+				if (!option.selected) changed = true
+				option.selected = true
+				selected.push(option)
+			}
+			for (const option of remaining) {
+				if (option.selected) changed = true
+				option.selected = false
+			}
+			const ordered = Array.from(control.selectedOptions).filter(
+				(option) => !option.matches(':disabled'),
+			)
+			if (selected.some((option, index) => ordered[index] !== option)) {
+				control.append(...selected)
+				changed = true
+			}
 		} else if (control instanceof HTMLSelectElement && control.multiple) {
 			for (const option of Array.from(control.options)) {
 				const selected = Array.isArray(value) && value.includes(option.value)
@@ -547,6 +598,16 @@ export class FormBinding implements FormBindingInterface {
 			}
 		}
 		this.#readings.set(control, control.value)
+		if (control instanceof HTMLSelectElement) {
+			const before = this.#resets.get(control)
+			if (before !== undefined) {
+				this.#resets.delete(control)
+				changed = !matchesValue(
+					before,
+					Array.from(control.selectedOptions, (option) => option.value),
+				)
+			}
+		}
 		if (changed) {
 			this.#changed = true
 			this.#emitter.emit('write', control)
@@ -568,7 +629,7 @@ export class FormBinding implements FormBindingInterface {
 		this.#attributes.set(element, attributes)
 	}
 
-	#description(control: FormControl, id: string, shown: boolean): void {
+	#description(control: HTMLElement, id: string, shown: boolean): void {
 		const tokens = (control.getAttribute('aria-describedby') ?? '')
 			.split(/\s+/)
 			.filter((token) => token !== '' && token !== id)
@@ -615,8 +676,17 @@ export class FormBinding implements FormBindingInterface {
 
 	#releaseRemoved(): void {
 		const live = new Set([...this.#controls.values()].flat())
+		const presentations = new Set<Element | undefined>(
+			[...live].map((control) => this.#options?.presentations?.get(control)),
+		)
 		for (const [control, name] of this.#names) {
 			if (!live.has(control) || control.name !== name) {
+				if (control instanceof HTMLSelectElement) {
+					this.#lists.delete(control)
+					this.#resets.delete(control)
+				}
+				const presentation = this.#options?.presentations?.get(control)
+				if (presentation !== undefined) this.#restore(presentation)
 				this.#restoreValidity(control)
 				this.#restore(control)
 				this.#names.delete(control)
@@ -626,6 +696,7 @@ export class FormBinding implements FormBindingInterface {
 		for (const control of live) this.#names.set(control, control.name)
 		for (const element of this.#attributes.keys()) {
 			if (
+				!presentations.has(element) &&
 				(isFormControl(element) || element instanceof HTMLButtonElement) &&
 				element.form !== this.#element
 			)
@@ -670,9 +741,11 @@ export class FormBinding implements FormBindingInterface {
 		destination.append(this.#summary)
 	}
 
-	#focusable(name: string): FormControl | undefined {
+	#focusable(name: string): HTMLElement | undefined {
 		return this.#controls
 			.get(name)
+			?.filter((control) => !control.matches(':disabled'))
+			.map((control) => this.#options?.presentations?.get(control) ?? control)
 			?.find(
 				(control) =>
 					!control.matches(':disabled') &&
@@ -896,10 +969,44 @@ export class FormBinding implements FormBindingInterface {
 		if (event.defaultPrevented || this.#destroyed) return
 		event.preventDefault()
 		try {
-			this.#document.clear()
+			const lists = new Map<HTMLSelectElement, HTMLSelectElement>()
+			for (const [control, snapshot] of this.#lists) {
+				if (
+					control.form === this.#element &&
+					control.name === snapshot.name &&
+					this.#document.field(control.name)?.control === 'list'
+				) {
+					lists.set(control, snapshot)
+					this.#resets.set(
+						control,
+						Array.from(control.selectedOptions, (option) => option.value),
+					)
+				}
+			}
+			this.#reading = true
+			try {
+				this.#document.clear()
+				for (const [control, snapshot] of lists) {
+					if (this.#destroyed) return
+					if (control.form !== this.#element || control.name !== snapshot.name) continue
+					control.replaceChildren(
+						...Array.from(snapshot.childNodes, (node) => node.cloneNode(true)),
+					)
+					for (const [index, option] of Array.from(control.options).entries()) {
+						option.selected = snapshot.options[index]?.selected ?? false
+					}
+					const field = this.#document.field(control.name)
+					if (field !== undefined)
+						this.#document.fill(field.name, readFormControls(field, [control]))
+				}
+			} finally {
+				this.#reading = false
+			}
 			this.refresh()
 		} catch (error) {
 			this.#emitter.emit('error', error)
+		} finally {
+			this.#resets.clear()
 		}
 	}
 }

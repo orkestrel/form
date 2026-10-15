@@ -72,6 +72,11 @@ binding in ESM. Both include declarations. The binding supports password reveal,
 without duplicate native feedback, presented-control write notifications and touch, and optional
 blur deferral through footer presses. See [Native binding](./guides/form.md#native-binding).
 
+Use `control: 'list'` for free-text tags or recipient arrays. Its `required` rule requires an entry,
+`minimum` and `maximum` count entries, and `email: true` checks each address. Bind it to a native
+`select multiple` for repeated FormData values and authored-option reset. See
+[List fields](./guides/form.md#list).
+
 ## Development
 
 ```sh

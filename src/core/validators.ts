@@ -219,6 +219,9 @@ export function isFormField(input: unknown): input is FormField {
 				const fallback = hasDefault ? input.default : undefined
 				return arrayOf(isFieldChoice)(choices) && (!hasDefault || arrayOf(isString)(fallback))
 			}
+			case 'list': {
+				return !Object.hasOwn(input, 'default') || arrayOf(isString)(input.default)
+			}
 			case 'file': {
 				const hasAccept = Object.hasOwn(input, 'accept')
 				const accept = hasAccept ? input.accept : undefined
