@@ -4,8 +4,8 @@
 > the answers given against it, declarative `FieldRule` data stating what those answers must
 > satisfy, acknowledged editing, and a terminal submit that settles the form exactly once.
 
-A terminal prompt and a browser form ask the same thing in different places, so this package ships
-what they share and neither renders nor reads input itself. Its `answer` promise is the parking seam
+A terminal prompt and a browser form ask the same thing in different places, so the core ships
+what they share. The browser entry binds native controls and renders neutral feedback. Its `answer` promise is the parking seam
 a server needs: hand the document out, wait, receive the answers back. A live form can take a field
 out and put it back with `disable` and `enable`, and exported budgets bound what one schema and its
 answers may retain, so a document that arrives from a wire costs a known maximum before anything
@@ -67,8 +67,10 @@ concept inventory of what this package leaves to the layer above.
 
 ## Package
 
-Published as one entry point per the `exports` field in `package.json`: `.`, the host-independent
-core. It ships dual ESM+CJS builds with declarations for both.
+The `.` entry ships the host-independent core in ESM and CJS. The `./browser` entry ships the native
+binding in ESM. Both include declarations. The binding supports password reveal, rule messages
+without duplicate native feedback, presented-control write notifications and touch, and optional
+blur deferral through footer presses. See [Native binding](./guides/form.md#native-binding).
 
 ## Development
 

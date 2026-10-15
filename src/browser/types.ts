@@ -10,6 +10,8 @@ export type FormBindingErrorCode = 'CONTROL' | 'PENDING' | 'DOM'
 /** Lists the native binding's notifications after their associated DOM effects. */
 export type FormBindingEventMap = {
 	readonly render: readonly []
+	/** Reports a control after its native value changes during document projection. */
+	readonly write: readonly [control: FormControl]
 	readonly submit: readonly [submission: FormSubmission, submitter: HTMLElement | undefined]
 	readonly error: readonly [error: unknown]
 }
@@ -18,6 +20,10 @@ export type FormBindingEventMap = {
 export interface FormBindingOptions {
 	readonly feedback?: ReadonlyMap<string, HTMLElement>
 	readonly summary?: HTMLElement
+	/** Maps native controls to focus targets whose departure touches the represented field. */
+	readonly presentations?: ReadonlyMap<FormControl, HTMLElement>
+	/** Defers blur touch until a same-form button's primary pointer press finishes. Default: false. */
+	readonly defer?: boolean
 	readonly on?: EmitterHooks<FormBindingEventMap>
 	readonly error?: EmitterErrorHandler
 }

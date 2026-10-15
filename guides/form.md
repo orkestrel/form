@@ -239,8 +239,8 @@ The browser entry publishes the controlled native form and its host readers.
 | ---------------------- | --------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `FormControl`          | type      | `HTMLInputElement` or `HTMLSelectElement` or `HTMLTextAreaElement`      | Represents a native answer control admitted by the binding.                             |
 | `FormBindingErrorCode` | type      | `'CONTROL'` or `'PENDING'` or `'DOM'`                                   | Names a native binding refusal.                                                         |
-| `FormBindingEventMap`  | type      | `{ render, submit, error }`                                             | Lists the native binding's notifications after their associated DOM effects.            |
-| `FormBindingOptions`   | interface | `{ feedback?, summary?, on?, error? }`                                  | Configures neutral feedback destinations and isolated event listeners.                  |
+| `FormBindingEventMap`  | type      | `{ render, write, submit, error }`                                      | Lists the native binding's notifications after their associated DOM effects.            |
+| `FormBindingOptions`   | interface | `{ feedback?, summary?, presentations?, defer?, on?, error? }`          | Configures neutral feedback destinations and isolated event listeners.                  |
 | `FormBindingInterface` | interface | `{ element, document, destroyed, emitter } plus read, refresh, destroy` | Declares a native form's borrowed document and synchronization lifecycle.               |
 | `FormBindingAttribute` | interface | `{ original, value }`                                                   | Records an attribute's authored value and the binding's last contribution.              |
 | `FormBindingValidity`  | interface | `{ original, value }`                                                   | Records the binding's custom-validity contribution beside the authored message.         |
@@ -250,6 +250,7 @@ The browser entry publishes the controlled native form and its host readers.
 | `isFormBindingError`   | function  | `(value: unknown) => value is FormBindingError`                         | Checks whether a value is a native binding refusal.                                     |
 | `isFormControl`        | function  | `(value: unknown) => value is FormControl`                              | Checks whether a value is a native answer control.                                      |
 | `matchesFormControls`  | function  | `(field, controls) => boolean`                                          | Checks a native control population against a field's declared value shape.              |
+| `readNativeMessages`   | function  | `(control, errors) => readonly string[]`                                | Reads native constraint messages not already reported by document rules.                |
 | `readFormControls`     | function  | `(field, controls) => FieldValue or undefined`                          | Reads one compatible native population using the document's blank-to-absence semantics. |
 
 The standalone reader uses the same admission rules as the binding.
@@ -1499,6 +1500,9 @@ raise a `CONTROL` binding error before answers or native values change. Radio an
 are supported; a confirm field uses one checkbox. Native input and change events import answers,
 and focusout touches the field. Explicit `read()` and `refresh()` also rediscover membership.
 A mutation observer follows membership, association, and native constraint attributes without polling.
+During mutation-driven painting, a focused text input or textarea whose value changed since its last
+projection keeps that edit until the input event reads it. Explicit document fills and refreshes still
+project the document's answer. Replacement controls receive the document's value.
 
 ### Bind an editable native form
 
@@ -1555,19 +1559,70 @@ without reachable controls remain text. An invalid submission focuses the first 
 control. The binding never invokes a native validity popup. A `render` event follows DOM effects,
 including effects triggered by core changes, so a presentation adapter can apply its own classes.
 
-Native and document validation remain distinct sources. Native validity refuses preparation and
-appears beside document errors; it does not overwrite the document's external invalidation slot.
+Native and document validation remain distinct sources. A named rule's message replaces feedback
+for that native constraint. Required, bounds, length, step, pattern, email, and URL failures match
+by rule identity, never localized text. A lone uncovered failure keeps the platform's message.
+Competing native failures receive separate constraint-specific sentences, so an uncovered failure
+cannot repeat a covered rule's sentence. Authored custom validity retains its exact text, and bad
+input retains a failure message. Native step feedback does not assume a zero step base.
+Native validity still refuses preparation and never overwrites the document's external invalidation slot.
 Unchanged reads never refill a field, so application invalidations survive refresh and resubmission.
 The binding removes only its own custom-validity contribution, preserves authored custom errors,
 and withholds visual feedback until touch. Application changes to custom validity require an input
 event or explicit refresh because the platform emits no custom-validity mutation event.
+
+### Represent a native control
+
+The `write` event carries the native control after its projected value changes. Multiple-select
+options finish changing before the event. Unchanged values and metadata changes emit no `write`.
+Use the construction hook to observe initial projection, or subscribe through the binding's emitter
+for subsequent writes. A listener can refresh its presentation without dispatching input or change.
+
+Map a native control to its presenting focus target through `presentations`. Leaving that target
+touches the native field; moving focus from the native control to its presentation does not. The
+mapping stops participating when the native control leaves the form. The presenting input's text
+does not become the native control's answer. A component still owns its selection, popup, focus
+forwarding, and native validation bubble behavior.
+
+For a select presented by an input, pass the native select and the visible input when binding.
+
+```ts
+import { createFormBinding } from '@orkestrel/form/browser'
+
+const binding = createFormBinding(element, model, {
+	presentations: new Map([[select, input]]),
+	on: {
+		write: (control) => {
+			if (control === select) input.value = select.selectedOptions[0]?.textContent ?? ''
+		},
+	},
+})
+```
+
+### Keep a footer press stable
+
+Set `defer: true` to hold blur-triggered touch while a primary pointer press on an enabled button
+associated with this form is active. This includes externally associated buttons and presses on
+their descendants. Touch resumes in a task after pointer release or cancellation, leaving the click
+sequence free of blur feedback that moves the button. Keyboard blur remains immediate; input reads
+and submission validation remain immediate. Reset and destruction discard deferred touch.
+
+Enable deferral where feedback can move an action under the pointer.
+
+```ts
+import { createFormBinding } from '@orkestrel/form/browser'
+
+const binding = createFormBinding(element, model, { defer: true })
+```
 
 ### Native capability boundaries
 
 The browser admits text, search, email, URL, telephone, hidden, password, textarea, number, range,
 date, time, datetime-local, color, confirm, radio, single select, multiple select, checkbox groups,
 and file inputs. Blank strings become absence through the core's answer predicate; false, zero, and
-empty lists remain answers. Numeric bad input remains a native error and never becomes NaN or a
+empty lists remain answers. A password field accepts both `password` and `text` inputs, so a reveal
+toggle retains discovery, validation, and summary links without mirroring the value.
+Numeric bad input remains a native error and never becomes NaN or a
 valid absent answer. Explicit refresh discards that unreadable native text and repaints the document's
 answer; ordinary input, touch, and submit keep the text available for correction. Native constraints
 still apply, including authored custom errors. Compatible

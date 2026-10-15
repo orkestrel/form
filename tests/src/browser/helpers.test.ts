@@ -1,4 +1,9 @@
-import { FormBindingError, matchesFormControls, readFormControls } from '@src/browser'
+import {
+	FormBindingError,
+	matchesFormControls,
+	readNativeMessages,
+	readFormControls,
+} from '@src/browser'
 import { describe, expect, it } from 'vitest'
 import { requireValue } from '@orkestrel/test'
 import {
@@ -9,6 +14,68 @@ import {
 } from '../../setupBrowser.js'
 
 describe('native readers', () => {
+	it('matches native failures by rule and field while retaining independent native errors', () => {
+		const input = document.createElement('input')
+		input.name = 'answer'
+		input.required = true
+		expect(readNativeMessages(input, [])).not.toEqual([])
+		expect(
+			readNativeMessages(input, [{ field: 'other', rule: 'required', message: 'Required' }]),
+		).not.toEqual([])
+		expect(
+			readNativeMessages(input, [{ field: 'answer', rule: 'required', message: 'Required' }]),
+		).toEqual([])
+		input.type = 'number'
+		input.min = '5'
+		input.max = '10'
+		input.step = '2'
+		input.value = '2'
+		expect(
+			readNativeMessages(input, [{ field: 'answer', rule: 'minimum', message: 'Minimum' }]),
+		).not.toEqual([])
+		expect(
+			readNativeMessages(input, [
+				{ field: 'answer', rule: 'minimum', message: 'Minimum' },
+				{ field: 'answer', rule: 'step', message: 'Step' },
+			]),
+		).toEqual([])
+		input.value = '11'
+		expect(
+			readNativeMessages(input, [{ field: 'answer', rule: 'maximum', message: 'Maximum' }]),
+		).toEqual([])
+		input.type = 'text'
+		input.pattern = '[A-Z]+'
+		input.value = 'lowercase'
+		expect(
+			readNativeMessages(input, [{ field: 'answer', rule: 'pattern', message: 'Pattern' }]),
+		).toEqual([])
+		input.removeAttribute('pattern')
+		input.type = 'email'
+		expect(
+			readNativeMessages(input, [{ field: 'answer', rule: 'url', message: 'URL' }]),
+		).not.toEqual([])
+		expect(
+			readNativeMessages(input, [{ field: 'answer', rule: 'email', message: 'Email' }]),
+		).toEqual([])
+		input.type = 'url'
+		expect(readNativeMessages(input, [{ field: 'answer', rule: 'url', message: 'URL' }])).toEqual(
+			[],
+		)
+		input.setCustomValidity('Authored refusal')
+		expect(
+			readNativeMessages(input, [{ field: 'answer', rule: 'url', message: 'URL' }]),
+		).not.toEqual([])
+	})
+
+	it('admits only password and text inputs for a password field', () => {
+		const input = document.createElement('input')
+		expect(matchesFormControls({ name: 'secret', control: 'password' }, [input])).toBe(true)
+		input.type = 'password'
+		expect(matchesFormControls({ name: 'secret', control: 'password' }, [input])).toBe(true)
+		input.type = 'email'
+		expect(matchesFormControls({ name: 'secret', control: 'password' }, [input])).toBe(false)
+	})
+
 	it.each(NATIVE_CONTROL_CASES)('projects and reads $label', ({ field, markup, value, edited }) => {
 		const fixture = createNativeFormFixture({ fields: [field] }, `<form>${markup}</form>`, {
 			answer: value,

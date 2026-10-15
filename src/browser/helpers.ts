@@ -1,6 +1,6 @@
-import type { FieldValue, FormField } from '../core/types.js'
+import type { FieldError, FieldRuleName, FieldValue, FormField } from '../core/types.js'
 import type { FormControl } from './types.js'
-import { matchesAnswer, matchesField } from '../core/helpers.js'
+import { formatMessage, matchesAnswer, matchesField } from '../core/helpers.js'
 import { FormBindingError } from './errors.js'
 
 /**
@@ -30,7 +30,7 @@ export function matchesFormControls(field: FormField, controls: readonly FormCon
 			case 'text':
 				return ['text', 'search', 'email', 'url', 'tel', 'hidden'].includes(control.type)
 			case 'password':
-				return control.type === 'password'
+				return control.type === 'password' || control.type === 'text'
 			case 'number':
 				return control.type === 'number' || control.type === 'range'
 			case 'datetime':
@@ -53,6 +53,56 @@ export function matchesFormControls(field: FormField, controls: readonly FormCon
 				return control.type === field.control
 		}
 	})
+}
+
+/**
+ * Reads native constraint messages not already reported by document rules.
+ * @param control - The native control with binding-owned custom validity removed.
+ * @param errors - The document's reported failures.
+ * @returns Uncovered constraint messages, preserving authored custom validity.
+ * @remarks
+ * A lone native failure retains platform copy. Competing failures use constraint-specific
+ * copy because the platform exposes only one message for the whole control.
+ * @example
+ * ```ts
+ * const input = document.createElement('input')
+ * input.name = 'name'
+ * input.required = true
+ * readNativeMessages(input, [{ field: 'name', rule: 'required', message: 'Enter a name' }]) // []
+ * ```
+ */
+export function readNativeMessages(
+	control: FormControl,
+	errors: readonly FieldError[],
+): readonly string[] {
+	const rules = new Set(
+		errors.filter((error) => error.field === control.name).map((error) => error.rule),
+	)
+	const validity = control.validity
+	const failures = new Map<FieldRuleName, string>()
+	if (validity.valueMissing) failures.set('required', formatMessage('required'))
+	if (validity.rangeUnderflow)
+		failures.set('minimum', formatMessage('minimum', control.getAttribute('min') ?? ''))
+	if (validity.rangeOverflow)
+		failures.set('maximum', formatMessage('maximum', control.getAttribute('max') ?? ''))
+	if (validity.tooShort)
+		failures.set('minimum', formatMessage('minimum', control.getAttribute('minlength') ?? ''))
+	if (validity.tooLong)
+		failures.set('maximum', formatMessage('maximum', control.getAttribute('maxlength') ?? ''))
+	if (validity.stepMismatch) failures.set('step', 'Use a permitted value for this step')
+	if (validity.patternMismatch) failures.set('pattern', formatMessage('pattern'))
+	if (validity.typeMismatch && control instanceof HTMLInputElement) {
+		if (control.type === 'email') failures.set('email', formatMessage('email'))
+		else if (control.type === 'url') failures.set('url', formatMessage('url'))
+	}
+	const messages: string[] = []
+	if (validity.customError) messages.push(control.validationMessage)
+	const lone = failures.size + Number(validity.customError) + Number(validity.badInput) === 1
+	if (validity.badInput) messages.push(lone ? control.validationMessage : 'Enter a valid value')
+	for (const [rule, message] of failures) {
+		if (!rules.has(rule)) messages.push(lone ? control.validationMessage : message)
+	}
+	return messages
 }
 
 /**

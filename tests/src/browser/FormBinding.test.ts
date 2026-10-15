@@ -7,6 +7,320 @@ import { userEvent } from 'vitest/browser'
 import { createNativeFormFixture, editNativeAnswer, readNativeInput } from '../../setupBrowser.js'
 
 describe('native binding', () => {
+	it('preserves explicit fills queued by a write listener during mutation reconciliation', async () => {
+		const fixture = createNativeFormFixture(
+			{
+				fields: [
+					{ name: 'query', control: 'text', default: 'Saved' },
+					{ name: 'other', control: 'text', default: 'Seed' },
+				],
+			},
+			'<form><input name="query"></form>',
+		)
+		try {
+			const input = readNativeInput(fixture.host, 'query')
+			input.focus()
+			input.value = 'Unread'
+			fixture.binding.emitter.on('write', (control) => {
+				if (control.name === 'other') fixture.document.fill('query', 'Explicit')
+			})
+			const other = document.createElement('input')
+			other.name = 'other'
+			fixture.element.append(other)
+			await waitForDelay()
+			expect(fixture.document.values.query).toBe('Explicit')
+			expect(input.value).toBe('Explicit')
+		} finally {
+			fixture.destroy()
+		}
+	})
+
+	it('does not repeat a covered minimum when native step also fails', () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ name: 'count', control: 'number', rule: { minimum: 5 } }] },
+			'<form><input name="count" type="number" step="2"></form>',
+		)
+		try {
+			editNativeAnswer(fixture.host, 'count', '2')
+			expect(fixture.host.querySelector('[data-form-feedback]')?.textContent).toBe(
+				'Must be at least 5\nUse a permitted value for this step',
+			)
+		} finally {
+			fixture.destroy()
+		}
+	})
+
+	it('keeps mutation protection narrow across replacement controls and explicit refresh', async () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ name: 'query', control: 'text', default: 'Saved' }] },
+			'<form><input name="query"></form>',
+		)
+		try {
+			const input = readNativeInput(fixture.host, 'query')
+			input.focus()
+			input.value = 'Unread'
+			input.className = 'editing'
+			await waitForDelay()
+			expect(input.value).toBe('Unread')
+			expect(fixture.document.values.query).toBe('Saved')
+			fixture.binding.refresh()
+			expect(input.value).toBe('Saved')
+			input.remove()
+			const replacement = document.createElement('input')
+			replacement.name = 'query'
+			replacement.value = 'Markup'
+			fixture.element.append(replacement)
+			await waitForDelay()
+			expect(replacement.value).toBe('Saved')
+		} finally {
+			fixture.destroy()
+		}
+	})
+
+	it('signals a completed multiple selection and stops painting when a write listener destroys', () => {
+		const fixture = createNativeFormFixture(
+			{
+				fields: [
+					{
+						name: 'ports',
+						control: 'checkbox',
+						choices: [
+							{ value: 'riga', label: 'Riga' },
+							{ value: 'kiel', label: 'Kiel' },
+						],
+					},
+				],
+			},
+			'<form><select name="ports" multiple><option>riga</option><option>kiel</option></select></form>',
+		)
+		const readings = createRecorder<readonly [readonly string[]]>()
+		fixture.binding.emitter.on('write', (control) => {
+			if (control instanceof HTMLSelectElement)
+				readings.handler(Array.from(control.selectedOptions, (option) => option.value))
+			fixture.binding.destroy()
+		})
+		try {
+			fixture.document.fill('ports', ['riga', 'kiel'])
+			expect(readings.calls).toEqual([[['riga', 'kiel']]])
+			expect(fixture.host.querySelector('[data-form-feedback]')).toBeNull()
+			expect(fixture.element.noValidate).toBe(false)
+			fixture.document.fill('ports', [])
+			expect(readings.count).toBe(1)
+		} finally {
+			fixture.destroy()
+		}
+	})
+
+	it('ignores a presentation after its native control leaves the form and ignores the native focus hop', () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ name: 'port', control: 'select', choices: [] }] },
+			'<form><select name="port"></select><input></form>',
+		)
+		fixture.binding.destroy()
+		const select = requireValue(fixture.element.querySelector('select'))
+		const input = requireValue(fixture.element.querySelector('input'))
+		const binding = createFormBinding(fixture.element, fixture.document, {
+			presentations: new Map([[select, input]]),
+		})
+		try {
+			select.focus()
+			input.focus()
+			expect(fixture.document.touched.has('port')).toBe(false)
+			select.remove()
+			input.blur()
+			expect(fixture.document.touched.has('port')).toBe(false)
+		} finally {
+			binding.destroy()
+			fixture.destroy()
+		}
+	})
+
+	it('releases cancelled external button presses and discards deferred touch on reset and destroy', async () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ name: 'name', control: 'text', rule: { required: true } }] },
+			'<form id="deferred-form"><input name="name"></form><button form="deferred-form" type="button"><span>Cancel</span></button>',
+		)
+		fixture.binding.destroy()
+		const binding = createFormBinding(fixture.element, fixture.document, { defer: true })
+		try {
+			const input = readNativeInput(fixture.host, 'name')
+			const button = requireValue(fixture.host.querySelector('button'))
+			const label = requireValue(button.querySelector('span'))
+			input.focus()
+			label.dispatchEvent(
+				new PointerEvent('pointerdown', { bubbles: true, isPrimary: true, pointerId: 7 }),
+			)
+			button.focus()
+			expect(fixture.document.touched.has('name')).toBe(false)
+			button.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 7 }))
+			await expect.poll(() => fixture.document.touched.has('name')).toBe(true)
+			fixture.document.clear()
+			input.focus()
+			label.dispatchEvent(
+				new PointerEvent('pointerdown', { bubbles: true, isPrimary: true, pointerId: 8 }),
+			)
+			button.focus()
+			fixture.element.reset()
+			button.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 8 }))
+			await waitForDelay()
+			expect(fixture.document.touched.has('name')).toBe(false)
+			input.focus()
+			label.dispatchEvent(
+				new PointerEvent('pointerdown', { bubbles: true, isPrimary: true, pointerId: 9 }),
+			)
+			button.focus()
+			button.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 9 }))
+			binding.destroy()
+			await waitForDelay()
+			expect(fixture.document.touched.has('name')).toBe(false)
+		} finally {
+			binding.destroy()
+			fixture.destroy()
+		}
+	})
+
+	it('signals completed select writes and touches through its presentation', async () => {
+		const fixture = createNativeFormFixture(
+			{
+				fields: [{ name: 'port', control: 'select', choices: [{ value: 'riga', label: 'Riga' }] }],
+			},
+			'<form><select name="port" hidden><option value="">Choose</option><option value="riga">Riga</option></select><input aria-label="Port"><button type="button">Next</button></form>',
+		)
+		fixture.binding.destroy()
+		const select = requireValue(fixture.element.querySelector('select'))
+		const input = requireValue(fixture.element.querySelector('input'))
+		const writes = createRecorder<readonly [string]>()
+		const binding = createFormBinding(fixture.element, fixture.document, {
+			presentations: new Map([[select, input]]),
+			on: {
+				write: (control) => {
+					writes.handler(control.value)
+					input.value = select.selectedOptions[0]?.textContent ?? ''
+				},
+			},
+		})
+		try {
+			fixture.document.fill('port', 'riga')
+			expect(writes.calls).toEqual([['riga']])
+			expect(input.value).toBe('Riga')
+			binding.refresh()
+			expect(writes.count).toBe(1)
+			await userEvent.click(input)
+			await userEvent.tab()
+			expect(fixture.document.touched.has('port')).toBe(true)
+			expect(fixture.document.values.port).toBe('riga')
+		} finally {
+			binding.destroy()
+			fixture.destroy()
+		}
+	})
+
+	it('keeps feedback still through the first footer press and touches after activation', async () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ name: 'name', control: 'text', rule: { required: true } }] },
+			'<form><input name="name"><button type="button">Cancel</button></form>',
+		)
+		fixture.binding.destroy()
+		const binding = createFormBinding(fixture.element, fixture.document, { defer: true })
+		const clicks = createRecorder<readonly [boolean]>()
+		const button = requireValue(fixture.element.querySelector('button'))
+		button.addEventListener('click', () => clicks.handler(fixture.document.touched.has('name')))
+		try {
+			const input = readNativeInput(fixture.host, 'name')
+			await userEvent.click(input)
+			await userEvent.click(button)
+			expect(clicks.calls).toEqual([[false]])
+			await expect.poll(() => fixture.document.touched.has('name')).toBe(true)
+			fixture.document.clear()
+			await userEvent.click(input)
+			await userEvent.tab()
+			expect(fixture.document.touched.has('name')).toBe(true)
+		} finally {
+			binding.destroy()
+			fixture.destroy()
+		}
+	})
+
+	it('prefers rule messages for native constraints without hiding independent failures', () => {
+		const fixture = createNativeFormFixture(
+			{
+				fields: [
+					{ name: 'email', control: 'text', rule: { required: true, email: true } },
+					{ name: 'count', control: 'number', rule: { minimum: 5 } },
+				],
+			},
+			'<form><input name="email" type="email"><input name="count" type="number" step="2"></form>',
+		)
+		try {
+			fixture.document.touch('email')
+			const feedback = requireValue(fixture.host.querySelector('[data-form-feedback="email"]'))
+			expect(feedback.textContent).toBe('This field is required')
+			editNativeAnswer(fixture.host, 'email', 'invalid')
+			expect(feedback.textContent).toBe(fixture.document.errors[0]?.message)
+			const input = readNativeInput(fixture.host, 'email')
+			input.setCustomValidity('The address is unavailable')
+			fixture.binding.refresh()
+			expect(feedback.textContent).toContain('The address is unavailable')
+			editNativeAnswer(fixture.host, 'count', '2')
+			const count = readNativeInput(fixture.host, 'count')
+			expect(count.validity.rangeUnderflow).toBe(true)
+			expect(count.validity.stepMismatch).toBe(true)
+			expect(count.validationMessage).not.toBe('Must be at least 5')
+		} finally {
+			fixture.destroy()
+		}
+	})
+
+	it('discovers, validates, and links a revealed password', async () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ name: 'password', control: 'password', rule: { required: true } }] },
+			'<form><input name="password" type="password"><aside></aside></form>',
+		)
+		fixture.binding.destroy()
+		const summary = requireValue(fixture.host.querySelector('aside'))
+		const binding = createFormBinding(fixture.element, fixture.document, { summary })
+		try {
+			const input = readNativeInput(fixture.host, 'password')
+			input.type = 'text'
+			binding.refresh()
+			fixture.element.requestSubmit()
+			expect(input.getAttribute('aria-invalid')).toBe('true')
+			const link = requireValue(summary.querySelector('a'))
+			await userEvent.click(link)
+			expect(document.activeElement).toBe(input)
+			await userEvent.keyboard('visible secret')
+			expect(fixture.document.values.password).toBe('visible secret')
+			input.type = 'password'
+			binding.refresh()
+			expect(input.value).toBe('visible secret')
+		} finally {
+			binding.destroy()
+			fixture.destroy()
+		}
+	})
+
+	it('retains typing when a target listener mutates observed attributes', async () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ name: 'query', control: 'text' }] },
+			'<form><input name="query"><div>Matches</div></form>',
+		)
+		try {
+			const input = readNativeInput(fixture.host, 'query')
+			const matches = requireValue(fixture.element.querySelector('div'))
+			input.addEventListener('input', () => {
+				matches.hidden = !matches.hidden
+			})
+			await userEvent.click(input)
+			await userEvent.keyboard('harbor')
+			expect(input.value).toBe('harbor')
+			expect(fixture.document.values.query).toBe('harbor')
+			fixture.document.fill('query', 'Port')
+			expect(input.value).toBe('Port')
+		} finally {
+			fixture.destroy()
+		}
+	})
+
 	it('explicit refresh replaces unreadable numeric text with the document answer', async () => {
 		const fixture = createNativeFormFixture(
 			{ fields: [{ name: 'count', control: 'number' }] },

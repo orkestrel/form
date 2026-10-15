@@ -11,7 +11,7 @@ import type {
 import { Emitter } from '@orkestrel/emitter'
 import { matchesValue } from '../core/helpers.js'
 import { FormBindingError, isFormBindingError } from './errors.js'
-import { matchesFormControls, readFormControls } from './helpers.js'
+import { matchesFormControls, readFormControls, readNativeMessages } from './helpers.js'
 import { isFormControl } from './validators.js'
 
 /** Implements a controlled native form over a borrowed document. */
@@ -29,6 +29,8 @@ export class FormBinding implements FormBindingInterface {
 	readonly #logical = new Set<string>()
 	readonly #unreadable = new Set<string>()
 	readonly #names = new Map<FormControl, string>()
+	readonly #readings = new Map<FormControl, string>()
+	readonly #deferred = new Set<string>()
 	readonly #refresh = this.#onState.bind(this)
 	readonly #fill = this.#onFill.bind(this)
 	readonly #disable = this.#onDisable.bind(this)
@@ -40,13 +42,15 @@ export class FormBinding implements FormBindingInterface {
 	#summaryText = ''
 	#destroyed = false
 	#running = false
-	#queued = false
+	#preserve: boolean | undefined
 	#reading = false
 	#excluding: string | undefined
 	#changed = false
 	#notified = false
 	#scheduled = false
 	#submitting = false
+	#pointer: number | undefined
+	#release: ReturnType<typeof setTimeout> | undefined
 
 	/**
 	 * Binds existing controls to the supplied document's answers.
@@ -60,7 +64,7 @@ export class FormBinding implements FormBindingInterface {
 		this.#document = document
 		this.#options = options
 		this.#emitter = new Emitter<FormBindingEventMap>(options)
-		this.#observer = new MutationObserver(() => this.#onDocument())
+		this.#observer = new MutationObserver(() => this.#onDocument(true))
 		for (const name of document.disabled) this.#logical.add(name)
 		try {
 			this.#controls = this.#discover()
@@ -71,6 +75,23 @@ export class FormBinding implements FormBindingInterface {
 			element.ownerDocument.addEventListener('change', (event) => this.#onInput(event), { signal })
 			element.ownerDocument.addEventListener('focusout', (event) => this.#onBlur(event), { signal })
 			element.ownerDocument.addEventListener('click', (event) => this.#onClick(event), { signal })
+			if (options?.defer) {
+				element.ownerDocument.addEventListener('pointerdown', (event) => this.#onPress(event), {
+					signal,
+					capture: true,
+				})
+				element.ownerDocument.addEventListener('pointerup', (event) => this.#onRelease(event), {
+					signal,
+					capture: true,
+				})
+				element.ownerDocument.addEventListener('pointercancel', (event) => this.#onRelease(event), {
+					signal,
+					capture: true,
+				})
+				element.ownerDocument.defaultView?.addEventListener('blur', () => this.#finishPress(), {
+					signal,
+				})
+			}
 			document.emitter.on('fill', this.#fill)
 			document.emitter.on('disable', this.#disable)
 			document.emitter.on('enable', this.#enable)
@@ -181,6 +202,7 @@ export class FormBinding implements FormBindingInterface {
 		this.#destroyed = true
 		this.#observer.disconnect()
 		this.#listeners.abort()
+		this.#clearPress()
 		this.#document.emitter.off('fill', this.#fill)
 		this.#document.emitter.off('disable', this.#disable)
 		this.#document.emitter.off('enable', this.#enable)
@@ -207,6 +229,7 @@ export class FormBinding implements FormBindingInterface {
 		this.#excluded.clear()
 		this.#feedback.clear()
 		this.#names.clear()
+		this.#readings.clear()
 		this.#unreadable.clear()
 		this.#logical.clear()
 		this.#controls = new Map()
@@ -214,21 +237,22 @@ export class FormBinding implements FormBindingInterface {
 		this.#emitter.destroy()
 	}
 
-	#drain(): void {
+	#drain(preserve = false): void {
 		if (this.#destroyed) return
-		this.#queued = true
+		this.#preserve = this.#preserve === false ? false : preserve
 		if (this.#running || this.#reading) return
 		this.#running = true
 		try {
 			let turns = 0
-			while (this.#queued && !this.#destroyed && turns < 2) {
-				this.#queued = false
+			while (this.#preserve !== undefined && !this.#destroyed && turns < 2) {
+				const retaining = this.#preserve
+				this.#preserve = undefined
 				this.#changed = false
 				this.#controls = this.#discover()
 				this.#releaseRemoved()
 				this.#exclusions()
 				if (this.#destroyed) break
-				this.#paint()
+				this.#paint(retaining)
 				if (!this.#destroyed && (this.#changed || !this.#notified)) {
 					this.#notified = true
 					this.#emitter.emit('render')
@@ -236,17 +260,17 @@ export class FormBinding implements FormBindingInterface {
 				turns += 1
 			}
 		} catch (error) {
-			this.#queued = false
+			this.#preserve = undefined
 			throw isFormBindingError(error)
 				? error
 				: new FormBindingError('DOM', 'Native form projection failed', { cause: error })
 		} finally {
 			this.#running = false
-			if (this.#queued && !this.#destroyed && !this.#scheduled) {
+			if (this.#preserve !== undefined && !this.#destroyed && !this.#scheduled) {
 				this.#scheduled = true
 				queueMicrotask(() => {
 					this.#scheduled = false
-					if (!this.#destroyed) this.#onDocument()
+					if (!this.#destroyed) this.#onDocument(this.#preserve ?? false)
 				})
 			}
 		}
@@ -330,7 +354,7 @@ export class FormBinding implements FormBindingInterface {
 		}
 	}
 
-	#paint(): void {
+	#paint(preserve: boolean): void {
 		this.#attribute(this.#element, 'novalidate', '')
 		this.#attribute(
 			this.#element,
@@ -349,14 +373,17 @@ export class FormBinding implements FormBindingInterface {
 						field,
 						control,
 						Object.hasOwn(values, field.name) ? values[field.name] : undefined,
+						preserve,
 					)
+				if (this.#destroyed) return
 				this.#restoreValidity(control)
 				if (
 					!this.#document.disabled.has(field.name) &&
 					!control.validity.valid &&
 					control.willValidate
 				) {
-					errors.push({ field: field.name, message: control.validationMessage })
+					for (const message of readNativeMessages(control, this.#document.errors))
+						errors.push({ field: field.name, message })
 				}
 			}
 		}
@@ -457,13 +484,31 @@ export class FormBinding implements FormBindingInterface {
 		}
 	}
 
-	#value(field: FormField, control: FormControl, value: FieldValue | undefined): void {
+	#value(
+		field: FormField,
+		control: FormControl,
+		value: FieldValue | undefined,
+		preserve: boolean,
+	): void {
+		if (
+			preserve &&
+			!field.locked &&
+			control.ownerDocument.activeElement === control &&
+			this.#readings.has(control) &&
+			(control instanceof HTMLTextAreaElement ||
+				(control instanceof HTMLInputElement &&
+					['text', 'search', 'email', 'url', 'tel', 'password'].includes(control.type))) &&
+			control.value !== this.#readings.get(control)
+		)
+			return
+		let changed = false
 		if (control instanceof HTMLInputElement && control.type === 'file') {
 			// The browser alone owns bytes. A differing saved name cannot create a FileList.
 			const names = Array.from(control.files ?? [], (file) => file.name)
 			if (names.length > 0 && (value === undefined || !matchesValue(names, value))) {
 				control.value = ''
 				this.#changed = true
+				this.#emitter.emit('write', control)
 			}
 			return
 		}
@@ -479,14 +524,14 @@ export class FormBinding implements FormBindingInterface {
 						: value === control.value
 			if (control.checked !== checked) {
 				control.checked = checked
-				this.#changed = true
+				changed = true
 			}
 		} else if (control instanceof HTMLSelectElement && control.multiple) {
 			for (const option of Array.from(control.options)) {
 				const selected = Array.isArray(value) && value.includes(option.value)
 				if (option.selected !== selected) {
 					option.selected = selected
-					this.#changed = true
+					changed = true
 				}
 			}
 		} else {
@@ -498,8 +543,13 @@ export class FormBinding implements FormBindingInterface {
 				const before = control.value
 				const invalid = control.validity.badInput
 				control.value = text
-				if (control.value !== before || invalid) this.#changed = true
+				if (control.value !== before || invalid) changed = true
 			}
+		}
+		this.#readings.set(control, control.value)
+		if (changed) {
+			this.#changed = true
+			this.#emitter.emit('write', control)
 		}
 	}
 
@@ -570,6 +620,7 @@ export class FormBinding implements FormBindingInterface {
 				this.#restoreValidity(control)
 				this.#restore(control)
 				this.#names.delete(control)
+				this.#readings.delete(control)
 			}
 		}
 		for (const control of live) this.#names.set(control, control.name)
@@ -632,10 +683,10 @@ export class FormBinding implements FormBindingInterface {
 			)
 	}
 
-	#onDocument(): void {
+	#onDocument(preserve = false): void {
 		if (this.#destroyed) return
 		try {
-			this.#drain()
+			this.#drain(preserve)
 		} catch (error) {
 			this.#emitter.emit('error', error)
 		}
@@ -665,6 +716,7 @@ export class FormBinding implements FormBindingInterface {
 	}
 
 	#onClear(): void {
+		this.#clearPress()
 		this.#logical.clear()
 		this.#excluded.clear()
 		this.#unreadable.clear()
@@ -711,7 +763,13 @@ export class FormBinding implements FormBindingInterface {
 	}
 
 	#onBlur(event: FocusEvent): void {
-		const control = event.target
+		let control = event.target
+		for (const [native, presentation] of this.#options?.presentations ?? []) {
+			if (control === presentation) {
+				control = native
+				break
+			}
+		}
 		if (
 			!isFormControl(control) ||
 			control.form !== this.#element ||
@@ -720,12 +778,62 @@ export class FormBinding implements FormBindingInterface {
 			this.#document.status !== 'editing'
 		)
 			return
+		if (event.relatedTarget === this.#options?.presentations?.get(control)) return
+		if (this.#pointer !== undefined) {
+			this.#deferred.add(control.name)
+			return
+		}
 		try {
 			this.#document.touch(control.name)
 			this.#drain()
 		} catch (error) {
 			this.#emitter.emit('error', error)
 		}
+	}
+
+	#onPress(event: PointerEvent): void {
+		if (!event.isPrimary || event.button !== 0 || !(event.target instanceof Element)) return
+		const button = event.target.closest('button,input')
+		if (
+			!(
+				(button instanceof HTMLButtonElement ||
+					(button instanceof HTMLInputElement &&
+						['button', 'submit', 'reset', 'image'].includes(button.type))) &&
+				button.form === this.#element &&
+				!button.matches(':disabled')
+			)
+		)
+			return
+		this.#finishPress()
+		this.#pointer = event.pointerId
+	}
+
+	#onRelease(event: PointerEvent): void {
+		if (event.pointerId !== this.#pointer) return
+		// A task keeps the pointerup-to-click sequence free of layout-changing feedback.
+		if (this.#release !== undefined) clearTimeout(this.#release)
+		this.#release = setTimeout(() => this.#finishPress(), 0)
+	}
+
+	#finishPress(): void {
+		const names = [...this.#deferred]
+		this.#clearPress()
+		if (this.#destroyed || this.#document.status !== 'editing') return
+		try {
+			for (const name of names) {
+				if (this.#destroyed) break
+				this.#document.touch(name)
+			}
+		} catch (error) {
+			this.#emitter.emit('error', error)
+		}
+	}
+
+	#clearPress(): void {
+		if (this.#release !== undefined) clearTimeout(this.#release)
+		this.#release = undefined
+		this.#pointer = undefined
+		this.#deferred.clear()
 	}
 
 	#onSubmit(event: SubmitEvent): void {
