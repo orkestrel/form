@@ -1,6 +1,6 @@
-import type { FieldError, FieldRuleName, FieldValue, FormField } from '../core/types.js'
+import type { FieldError, FieldRuleName, FieldValue, FormField } from '@src/core'
 import type { FormControl } from './types.js'
-import { formatMessage, matchesAnswer, matchesField } from '../core/helpers.js'
+import { formatMessage, matchesAnswer, matchesField } from '@src/core'
 import { FormBindingError } from './errors.js'
 
 /**

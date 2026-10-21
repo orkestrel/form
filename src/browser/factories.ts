@@ -1,4 +1,4 @@
-import type { FormInterface } from '../core/types.js'
+import type { FormInterface } from '@src/core'
 import type { FormBindingInterface, FormBindingOptions } from './types.js'
 import { FormBinding } from './FormBinding.js'
 

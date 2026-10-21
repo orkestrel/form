@@ -1,5 +1,5 @@
 import type { EmitterInterface } from '@orkestrel/emitter'
-import type { FieldError, FieldValue, FormField, FormInterface } from '../core/types.js'
+import type { FieldError, FieldValue, FormField, FormInterface } from '@src/core'
 import type {
 	FormBindingAttribute,
 	FormBindingEventMap,
@@ -9,7 +9,7 @@ import type {
 	FormControl,
 } from './types.js'
 import { Emitter } from '@orkestrel/emitter'
-import { matchesValue } from '../core/helpers.js'
+import { matchesValue } from '@src/core'
 import { FormBindingError, isFormBindingError } from './errors.js'
 import { matchesFormControls, readFormControls, readNativeMessages } from './helpers.js'
 import { isFormControl } from './validators.js'

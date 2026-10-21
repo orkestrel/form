@@ -1,5 +1,5 @@
 import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
-import type { FormInterface, FormSubmission } from '../core/types.js'
+import type { FormInterface, FormSubmission } from '@src/core'
 
 /** Represents a native answer control admitted by the binding. */
 export type FormControl = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
