@@ -189,7 +189,7 @@ export function matchesAnswer(value: FieldValue | undefined): boolean {
  *
  * @remarks
  * The runtime control-membership check keeps this boundary total for JavaScript callers that
- * bypass the declared {@link FieldControl} contract.
+ * pass values outside the declared {@link FieldControl} contract.
  *
  * @param control - The field control to inspect.
  * @param rule - The named rule to inspect.

@@ -102,7 +102,7 @@ export interface FieldChoice {
  *
  * @remarks
  * It runs after every named rule, and it runs on an absent value as well as a present one. That
- * is what makes a rule such as "required once the sibling says yes" expressible, and it means an
+ * is what makes a rule such as "required after the sibling says yes" expressible, and it means an
  * unanswered field can carry both a `required` message and this validator's own.
  *
  * @param value - The value the field holds, or `undefined` when nobody has answered it.
@@ -499,7 +499,7 @@ export interface FormOptions {
  * Declares the contract a form exposes: the state it holds and the calls that move it.
  *
  * @remarks
- * `valid` is true when the last completed evaluation found no error, and `dirty` is true once
+ * `valid` is true when the last completed evaluation found no error, and `dirty` is true when
  * an answer differs from its acknowledged baseline. Both are derived, never stored.
  *
  * `touched` holds the fields somebody has visited, which is what lets a renderer withhold an
