@@ -37,7 +37,7 @@ const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 // resolved from the workspace under proof, so a consumer of the packed artifact is
 // checked by the same compiler that workspace's own `check` script runs.
 const TSC = createRequire(join(ROOT, 'package.json')).resolve('typescript/bin/tsc')
-// Windows needs a shell to launch a `.cmd`: Node refuses one directly because the
+// Windows needs a shell to launch a `.cmd`: Node refuses one directly under its
 // batch-argument hardening, and `spawnSync` returns `EINVAL` with a null status
 // rather than an exit code a caller can read. Every following argument is a literal or
 // a path this file built, so the shell has nothing to escape.
