@@ -3,6 +3,36 @@ import { FormError, isFormError } from '@src/core'
 import { describe, expect, it } from 'vitest'
 
 describe('FormError', () => {
+	it('accepts a NaN context admitted by JSONRecord', () => {
+		// Base: e013983:src/core/errors.ts:47.
+		expect(isFormError(new FormError('FIELD', 'failure', { measurement: Number.NaN }))).toBe(true)
+	})
+
+	it('accepts infinite context values admitted by JSONRecord', () => {
+		// Base: e013983:src/core/errors.ts:47.
+		expect(
+			isFormError(new FormError('FIELD', 'failure', { measurements: [Infinity, -Infinity] })),
+		).toBe(true)
+	})
+
+	it('refuses cyclic deep unreadable and non-record contexts', () => {
+		const cycle: Record<string, unknown> = {}
+		cycle.self = cycle
+		const deep = Array.from({ length: 513 }).reduce<unknown>((value) => ({ value }), null)
+		for (const context of [cycle, deep, new Date(), { value: undefined }]) {
+			const error = new FormError('FIELD', 'failure')
+			Object.defineProperty(error, 'context', { value: context })
+			expect(isFormError(error)).toBe(false)
+		}
+		const error = new FormError('FIELD', 'failure')
+		Object.defineProperty(error, 'context', {
+			get() {
+				throw new Error('unreadable')
+			},
+		})
+		expect(isFormError(error)).toBe(false)
+	})
+
 	it('retains its code, message, context, and stable name', () => {
 		const context: JSONRecord = { field: 'missing' }
 		const error = new FormError('FIELD', 'The field does not exist', context)

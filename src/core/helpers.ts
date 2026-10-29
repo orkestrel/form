@@ -662,8 +662,17 @@ export function extractGroups(schema: FormSchema): readonly FormGroup[] {
  */
 export function auditSchema(schema: FormSchema): readonly string[] {
 	const faults: string[] = []
-	const fields: string[] = []
-	const groups: string[] = []
+	const groups = new Map(
+		Array.from(
+			{ length: Math.min(schema.groups?.length ?? 0, GROUP_LIMIT + 1) },
+			(_, index) => index,
+		)
+			.flatMap((index): Array<readonly [string, number]> => {
+				const group = schema.groups?.[index]
+				return group === undefined ? [] : [[group.name, index]]
+			})
+			.toReversed(),
+	)
 	const named = schema.name !== undefined && schema.name.length > NAME_LIMIT
 
 	if (schema.fields.length > FIELD_LIMIT) {
@@ -681,6 +690,14 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 					return group !== undefined && group.name.length > NAME_LIMIT
 				})
 	const fieldCount = Math.min(schema.fields.length, FIELD_LIMIT + 1)
+	const fields = new Map(
+		Array.from({ length: fieldCount }, (_, index) => index)
+			.flatMap((index): Array<readonly [string, number]> => {
+				const field = schema.fields[index]
+				return field === undefined ? [] : [[field.name, index]]
+			})
+			.toReversed(),
+	)
 	const bounds = Array.from({ length: fieldCount }, (_, index) => index).reduce<{
 		readonly name: boolean
 		readonly choice: string | undefined
@@ -766,9 +783,8 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 		for (const index of Array.from({ length: count }, (_, position) => position)) {
 			const group = schema.groups[index]
 			if (group === undefined) continue
-			if (groups.includes(group.name))
+			if (groups.get(group.name) !== index)
 				faults.push(`Group "${group.name}" is declared more than once`)
-			groups.push(group.name)
 		}
 	}
 
@@ -777,10 +793,10 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 		if (field === undefined) continue
 		if (field.name.length === 0) faults.push('Field "" has an empty name')
 		if (field.name === '__proto__') faults.push('Field "__proto__" has a refused name')
-		if (fields.includes(field.name)) faults.push(`Field "${field.name}" is declared more than once`)
-		fields.push(field.name)
+		if (fields.get(field.name) !== fieldIndex)
+			faults.push(`Field "${field.name}" is declared more than once`)
 
-		if (field.group !== undefined && !groups.includes(field.group)) {
+		if (field.group !== undefined && !groups.has(field.group)) {
 			faults.push(`Field "${field.name}" references missing group "${field.group}"`)
 		}
 
@@ -806,16 +822,22 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 		}
 
 		if (field.control === 'select' || field.control === 'checkbox') {
-			const choices: string[] = []
 			const count = Math.min(field.choices.length, CHOICE_LIMIT + 1)
+			const choices = new Map(
+				Array.from({ length: count }, (_, index) => index)
+					.flatMap((index): Array<readonly [string, number]> => {
+						const choice = field.choices[index]
+						return choice === undefined ? [] : [[choice.value, index]]
+					})
+					.toReversed(),
+			)
 			const enabled = Array.from({ length: count }, (_, index) => index).reduce((total, index) => {
 				const choice = field.choices[index]
 				if (choice === undefined) return total
 				const available = choice.disabled !== true
-				if (choices.includes(choice.value)) {
+				if (choices.get(choice.value) !== index) {
 					faults.push(`Field "${field.name}" offers choice "${choice.value}" more than once`)
 				}
-				choices.push(choice.value)
 				return total + (available ? 1 : 0)
 			}, 0)
 

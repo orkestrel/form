@@ -575,8 +575,9 @@ export class FormBinding implements FormBindingInterface {
 		if (control instanceof HTMLSelectElement && field.control === 'list')
 			return this.#select(control, value)
 		if (control instanceof HTMLSelectElement && control.multiple) {
+			const desired = new Set(Array.isArray(value) ? value : [])
 			const changes = Array.from(control.options).map((option) => {
-				const selected = Array.isArray(value) && value.includes(option.value)
+				const selected = desired.has(option.value)
 				const changed = option.selected !== selected
 				if (changed) option.selected = selected
 				return changed
@@ -597,20 +598,23 @@ export class FormBinding implements FormBindingInterface {
 
 	#select(control: HTMLSelectElement, value: FieldValue | undefined): boolean {
 		const candidates = Array.from(control.options).filter((option) => !option.matches(':disabled'))
+		const entries = Array.isArray(value) ? value : []
+		const desired = new Set(entries)
+		const grouped = Map.groupBy(
+			candidates.filter((option) => desired.has(option.value)),
+			(option) => option.value,
+		)
+		const available = new Map([...grouped].map(([entry, options]) => [entry, options.values()]))
 		const selected: Array<{ readonly option: HTMLOptionElement; readonly changed: boolean }> = []
-		for (const entry of Array.isArray(value) ? value : []) {
-			const existing = candidates.find(
-				(option) =>
-					!selected.some((selection) => selection.option === option) && option.value === entry,
-			)
+		for (const entry of entries) {
+			const existing = available.get(entry)?.next().value
 			const option = existing ?? this.#createOption(control, entry)
 			const changed = !option.selected || existing === undefined
 			option.selected = true
 			selected.push({ option, changed })
 		}
-		const remaining = candidates.filter(
-			(option) => !selected.some((selection) => selection.option === option),
-		)
+		const claimed = new Set(selected.map((selection) => selection.option))
+		const remaining = candidates.filter((option) => !claimed.has(option))
 		const changes = remaining.map((option) => {
 			const changed = option.selected
 			option.selected = false

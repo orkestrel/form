@@ -8,6 +8,30 @@ import { userEvent } from 'vitest/browser'
 import { createNativeFormFixture, editNativeAnswer, readNativeInput } from '../../setupBrowser.js'
 
 describe('open list reset and presentation', () => {
+	it('claims enabled options in base order and preserves desired list order', () => {
+		// Base: e013983:src/browser/FormBinding.ts:556.
+		const values = Array.from({ length: 1024 }, (_, index) => `value${index}`)
+		const fixture = createNativeFormFixture(
+			{ fields: [{ control: 'list', name: 'to' }] },
+			`<form><select multiple name="to"><option disabled value="value0">Disabled</option>${values
+				.map((value) => `<option value="${value}">${value}</option>`)
+				.join('')}<option value="value0">Duplicate</option></select></form>`,
+		)
+		try {
+			const select = requireValue(fixture.element.querySelector('select'))
+			const original = Array.from(select.options)
+			fixture.document.fill('to', values.toReversed())
+			expect(Array.from(select.selectedOptions, (option) => option.value)).toEqual(
+				values.toReversed(),
+			)
+			expect(select.selectedOptions.item(1023)).toBe(original[1])
+			expect(original[0]?.selected).toBe(false)
+			expect(original.at(-1)?.selected).toBe(false)
+		} finally {
+			fixture.destroy()
+		}
+	})
+
 	it('does not emit write for an unchanged list reset', () => {
 		const fixture = createNativeFormFixture(
 			{ fields: [{ control: 'list', name: 'to', default: ['a'] }] },

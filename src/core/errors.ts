@@ -1,6 +1,13 @@
 import type { JSONRecord } from '@orkestrel/contract'
-import { holds, INTRINSICS, isInstance, isString, isRecord, isJSONValue } from '@orkestrel/contract'
 import type { FormErrorCode } from './types.js'
+import {
+	holds,
+	INTRINSICS,
+	isInstance,
+	isString,
+	isRecord,
+	GUARD_DEPTH_LIMIT,
+} from '@orkestrel/contract'
 
 /**
  * Represents an error raised by the form domain.
@@ -55,11 +62,27 @@ export function isFormError(input: unknown): input is FormError {
 			return false
 		const code: unknown = INTRINSICS.reflect.read(input, 'code')
 		const context: unknown = INTRINSICS.reflect.read(input, 'context')
-		return (
-			isString(code) &&
-			['SCHEMA', 'FIELD', 'CONTROL', 'SETTLED', 'ABANDONED', 'PENDING'].includes(code) &&
-			isString(INTRINSICS.reflect.read(input, 'message')) &&
-			(context === undefined || (isRecord(context) && isJSONValue(context)))
+		if (
+			!isString(code) ||
+			!['SCHEMA', 'FIELD', 'CONTROL', 'SETTLED', 'ABANDONED', 'PENDING'].includes(code) ||
+			!isString(INTRINSICS.reflect.read(input, 'message'))
 		)
+			return false
+		if (context === undefined) return true
+		if (!isRecord(context)) return false
+		const pending: Array<{ readonly value: unknown; readonly ancestors: readonly object[] }> = [
+			{ value: context, ancestors: [] },
+		]
+		for (const { value, ancestors } of pending) {
+			if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) continue
+			if (!Array.isArray(value) && !isRecord(value)) return false
+			if (ancestors.length >= GUARD_DEPTH_LIMIT || ancestors.includes(value)) return false
+			const path = [...ancestors, value]
+			const children = Array.isArray(value)
+				? Array.from({ length: value.length }, (_, index): unknown => value[index])
+				: Object.values(value)
+			for (const child of children) pending.push({ value: child, ancestors: path })
+		}
+		return true
 	})
 }

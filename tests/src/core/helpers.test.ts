@@ -1041,6 +1041,49 @@ describe('form helpers', () => {
 })
 
 describe('auditSchema', () => {
+	it('accepts wide unique fields groups and select choices in base order', () => {
+		// Base: e013983:src/core/helpers.ts:888.
+		const fields = Array.from({ length: 512 }, (_, index) => ({
+			control: 'text' as const,
+			name: `field${index}`,
+			group: `group${index % 64}`,
+		}))
+		const groups = Array.from({ length: 64 }, (_, index) => ({
+			name: `group${index}`,
+			label: `Group ${index}`,
+		}))
+		expect(auditSchema({ fields, groups })).toEqual([])
+		const choices = Array.from({ length: 1024 }, (_, index) => ({
+			value: `choice${index}`,
+			label: `Choice ${index}`,
+		}))
+		expect(auditSchema({ fields: [{ control: 'select', name: 'choice', choices }] })).toEqual([])
+		expect(
+			auditSchema({
+				groups: [
+					{ name: 'group', label: 'Group' },
+					{ name: 'group', label: 'Repeated' },
+				],
+				fields: [
+					{ control: 'text', name: 'field' },
+					{ control: 'text', name: 'field' },
+					{
+						control: 'select',
+						name: 'choice',
+						choices: [
+							{ value: 'a', label: 'A' },
+							{ value: 'a', label: 'Repeated' },
+						],
+					},
+				],
+			}),
+		).toEqual([
+			'Group "group" is declared more than once',
+			'Field "field" is declared more than once',
+			'Field "choice" offers choice "a" more than once',
+		])
+	})
+
 	it('reports field and group identity faults and accepts their sound forms', () => {
 		expect(
 			auditSchema({
