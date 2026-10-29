@@ -1,5 +1,5 @@
 import type { FormBindingErrorCode } from './types.js'
-import { isInstance } from '@orkestrel/contract'
+import { holds, INTRINSICS, isFunction, isInstance, isObject, isString } from '@orkestrel/contract'
 
 /** Reports an incompatible control, overlapping submission, or native DOM failure. */
 export class FormBindingError extends Error {
@@ -18,6 +18,7 @@ export class FormBindingError extends Error {
 		context?: Readonly<Record<string, unknown>>,
 	) {
 		super(message)
+		Object.defineProperty(this, Symbol.for('@orkestrel/form.FormBindingError'), { value: this })
 		this.name = 'FormBindingError'
 		this.code = code
 		this.context = context === undefined ? undefined : Object.freeze({ ...context })
@@ -26,6 +27,9 @@ export class FormBindingError extends Error {
 
 /**
  * Checks whether a value is a native binding refusal.
+ * @remarks
+ * Accepts self-branded errors across package copies and subclasses without checking their name.
+ * Refuses unbranded look-alikes, plain objects, and transparent proxies.
  * @param value - The value to inspect.
  * @returns True if the value is a native binding refusal; false otherwise.
  * @example
@@ -34,5 +38,17 @@ export class FormBindingError extends Error {
  * ```
  */
 export function isFormBindingError(value: unknown): value is FormBindingError {
-	return isInstance(value, FormBindingError)
+	return holds(() => {
+		if (!isInstance(value, Error) || INTRINSICS.prototype(value) === Error.prototype) return false
+		if (INTRINSICS.describe(value, Symbol.for('@orkestrel/form.FormBindingError'))?.value !== value)
+			return false
+		const code: unknown = INTRINSICS.reflect.read(value, 'code')
+		const context: unknown = INTRINSICS.reflect.read(value, 'context')
+		return (
+			isString(code) &&
+			['CONTROL', 'PENDING', 'DOM'].includes(code) &&
+			isString(INTRINSICS.reflect.read(value, 'message')) &&
+			(context === undefined || isObject(context) || isFunction(context))
+		)
+	})
 }

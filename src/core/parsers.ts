@@ -35,8 +35,7 @@ export function parseForm(input: unknown): FormSchema | undefined {
 		if (!read.success || !read.value.dense) return undefined
 
 		const copies: unknown[] = []
-		for (let index = 0; index < read.value.entries.length; index += 1) {
-			const field = read.value.entries[index]
+		for (const field of read.value.entries) {
 			if (!isRecord(field)) {
 				copies.push(field)
 				continue

@@ -479,49 +479,7 @@ export class Form implements FormInterface {
 
 		return this.#batch(() => {
 			try {
-				let drained = false
-				while (true) {
-					const values = this.values
-					const disabled = this.disabled
-					const captured = new Map<string, number>()
-					const touched: string[] = []
-					for (const field of this.#schema.fields) {
-						if (disabled.has(field.name)) continue
-						captured.set(field.name, this.#revisions.get(field.name) ?? 0)
-						if (!this.#touched.has(field.name)) touched.push(field.name)
-						this.#touched.add(field.name)
-					}
-
-					const before = this.#evaluation
-					for (const name of touched) {
-						if (controller.signal.aborted || this.#pending) break
-						this.#emitter.emit('touch', name)
-					}
-					this.#requirePreparation(controller)
-					const errors = this.#check(values, disabled)
-					const mutated = this.#evaluation !== before
-					// A validator may itself edit. Its completed evaluation owns the live error list.
-					const changed = !mutated && this.#record(errors)
-					const evaluation = this.#evaluation
-					if (changed) this.#emitter.emit('validate', this.#errors)
-					this.#requirePreparation(controller)
-					if (errors.length > 0) return { success: false, error: errors }
-					if (!drained && (mutated || this.#evaluation !== evaluation)) {
-						drained = true
-						continue
-					}
-
-					const submission = Object.freeze({
-						values: this.#snapshot(values, disabled),
-						signal: controller.signal,
-					})
-					this.#captured = captured
-					this.#controller = controller
-					this.#submission = submission
-					this.#preparing = undefined
-					this.#emitter.emit('prepare', submission)
-					return { success: true, value: submission }
-				}
+				return this.#prepare(controller, false)
 			} finally {
 				if (this.#preparing === controller) this.#preparing = undefined
 			}
@@ -596,14 +554,12 @@ export class Form implements FormInterface {
 			this.#invalidations.clear()
 			this.#revisions.clear()
 
-			let changed = false
-			try {
-				changed = this.#evaluate()
-			} finally {
-				// Signal listeners see the reset and can prepare a successor after the old identity.
-				controller?.abort()
-				if (submission !== undefined) this.#emitter.emit('abort', submission)
-			}
+			const evaluated = attempt(() => this.#evaluate())
+			// Signal listeners see the reset before a successor can be prepared.
+			controller?.abort()
+			if (submission !== undefined) this.#emitter.emit('abort', submission)
+			if (!evaluated.success) throw evaluated.error
+			const changed = evaluated.value
 
 			this.#emitter.emit('clear')
 			if (changed) this.#emitter.emit('validate', this.#errors)
@@ -624,6 +580,48 @@ export class Form implements FormInterface {
 
 		this.#pending = true
 		if (this.#batchDepth === 0) this.#teardown()
+	}
+
+	#prepare(controller: AbortController, drained: boolean): FormPreparationResult {
+		const values = this.values
+		const disabled = this.disabled
+		const captured = new Map<string, number>()
+		const touched: string[] = []
+		for (const field of this.#schema.fields) {
+			if (disabled.has(field.name)) continue
+			captured.set(field.name, this.#revisions.get(field.name) ?? 0)
+			if (!this.#touched.has(field.name)) touched.push(field.name)
+			this.#touched.add(field.name)
+		}
+
+		const before = this.#evaluation
+		for (const name of touched) {
+			if (controller.signal.aborted || this.#pending) break
+			this.#emitter.emit('touch', name)
+		}
+		this.#requirePreparation(controller)
+		const errors = this.#check(values, disabled)
+		const mutated = this.#evaluation !== before
+		// A validator may itself edit. Its completed evaluation owns the live error list.
+		const changed = !mutated && this.#record(errors)
+		const evaluation = this.#evaluation
+		if (changed) this.#emitter.emit('validate', this.#errors)
+		this.#requirePreparation(controller)
+		if (errors.length > 0) return { success: false, error: errors }
+		if (!drained && (mutated || this.#evaluation !== evaluation)) {
+			return this.#prepare(controller, true)
+		}
+
+		const submission = Object.freeze({
+			values: this.#snapshot(values, disabled),
+			signal: controller.signal,
+		})
+		this.#captured = captured
+		this.#controller = controller
+		this.#submission = submission
+		this.#preparing = undefined
+		this.#emitter.emit('prepare', submission)
+		return { success: true, value: submission }
 	}
 
 	// Refuse a write to a form that settled before considering whether teardown was requested.

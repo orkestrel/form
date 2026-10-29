@@ -1,6 +1,7 @@
+import { BIRTH, ANSWERED } from '../../setup.js'
+import { FORM_SCHEMA as SCHEMA } from '../../setup.js'
 import type {
 	FieldChoice,
-	FieldError,
 	FieldValidator,
 	FormEventMap,
 	FormField,
@@ -13,45 +14,17 @@ import { Form, STRING_LIMIT, isFormError, isFormSchema } from '@src/core'
 import { attempt } from '@orkestrel/contract'
 import { createRecorder, requireValue, waitForDelay } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
-import { createSequenceValidator } from '../../setup.js'
+import {
+	createSequenceValidator,
+	ValidationCounter,
+	ValidationGate,
+	createRepeatValidator,
+	refusalsOf,
+} from '../../setup.js'
 
 // One schema carries the cases most tests need: two required fields make the form invalid from
 // birth, `topics` and `nickname` seed defaults, `referral` is disabled so it is neither checked
 // nor submitted, and `token` is hidden and locked so it is both.
-const SCHEMA: FormSchema = {
-	label: 'Sign up',
-	groups: [{ name: 'account', label: 'Account' }],
-	fields: [
-		{
-			control: 'text',
-			name: 'email',
-			label: 'Email',
-			group: 'account',
-			rule: { required: true, email: true },
-		},
-		{ control: 'confirm', name: 'terms', label: 'I accept the terms', rule: { required: true } },
-		{
-			control: 'checkbox',
-			name: 'topics',
-			label: 'Topics',
-			default: ['releases'],
-			choices: [
-				{ value: 'releases', label: 'Releases' },
-				{ value: 'events', label: 'Events' },
-			],
-		},
-		{ control: 'text', name: 'nickname', label: 'Nickname', default: 'ada' },
-		{ control: 'text', name: 'referral', label: 'Referral', disabled: true, default: 'friend' },
-		{ control: 'text', name: 'token', label: 'Token', hidden: true, locked: true, default: 'abc' },
-	],
-}
-
-const BIRTH: readonly FieldError[] = [
-	{ field: 'email', message: 'This field is required', rule: 'required' },
-	{ field: 'terms', message: 'This field is required', rule: 'required' },
-]
-
-const ANSWERED: FormValues = { email: 'ada@example.com', terms: true }
 
 describe('Form construction', () => {
 	it('refuses a schema whose invariants the audit rejects', () => {
@@ -94,15 +67,15 @@ describe('Form construction', () => {
 		// `meta` is foreign data, and a record that answers each read differently makes the read
 		// count observable: the value the audit checks must be the value the form keeps.
 		const oversize = 'x'.repeat(STRING_LIMIT + 1)
-		let reads = 0
+		const reads = new ValidationCounter()
 		const meta = new Proxy(
 			{ note: 'seed' },
 			{
 				getOwnPropertyDescriptor(target, key) {
 					if (key !== 'note') return Reflect.getOwnPropertyDescriptor(target, key)
-					reads += 1
+					reads.next()
 					return {
-						value: reads === 1 ? 'small' : oversize,
+						value: reads.count === 1 ? 'small' : oversize,
 						enumerable: true,
 						configurable: true,
 						writable: true,
@@ -113,7 +86,7 @@ describe('Form construction', () => {
 
 		const form = new Form({ fields: [{ control: 'text', name: 'note', meta }] })
 
-		expect(reads).toBe(1)
+		expect(reads.count).toBe(1)
 		expect(form.schema.fields[0]?.meta?.note).toBe('small')
 	})
 
@@ -553,7 +526,7 @@ describe('Form disable and enable', () => {
 	})
 
 	it('does not reevaluate when every requested field is already in that state', () => {
-		let calls = 0
+		const calls = new ValidationCounter()
 		const form = new Form({
 			fields: [
 				{
@@ -561,8 +534,8 @@ describe('Form disable and enable', () => {
 					name: 'watcher',
 					rule: {
 						custom: () => {
-							calls += 1
-							return calls < 3 ? true : 'Changed during no-op'
+							calls.next()
+							return calls.count < 3 ? true : 'Changed during no-op'
 						},
 					},
 				},
@@ -575,7 +548,7 @@ describe('Form disable and enable', () => {
 		form.disable('target')
 		form.disable('target')
 
-		expect(calls).toBe(2)
+		expect(calls.count).toBe(2)
 		expect(form.errors).toStrictEqual([])
 		expect(validations.count).toBe(0)
 	})
@@ -695,7 +668,7 @@ describe('Form disable and enable', () => {
 
 	it('keeps an applied overlay beside stale errors when a custom validator throws', () => {
 		const failure = new Error('validator exploded')
-		let throwing = false
+		const throwing = new ValidationGate()
 		const form = new Form({
 			fields: [
 				{
@@ -704,14 +677,14 @@ describe('Form disable and enable', () => {
 					disabled: true,
 					rule: {
 						custom: () => {
-							if (throwing) throw failure
+							if (throwing.active) throw failure
 							return true
 						},
 					},
 				},
 			],
 		})
-		throwing = true
+		throwing.active = true
 
 		const outcome = attempt(() => form.enable('name'))
 
@@ -988,8 +961,8 @@ describe('Form acknowledged editing', () => {
 	})
 
 	it('refuses nested prepare and submit during validation and releases the guard after a throw', () => {
-		let checking = false
-		let failure: Error | undefined
+		const checking = new ValidationGate()
+		const failure = new ValidationGate()
 		const form = new Form({
 			fields: [
 				{
@@ -997,22 +970,22 @@ describe('Form acknowledged editing', () => {
 					name: 'name',
 					rule: {
 						custom: () => {
-							if (!checking) return true
+							if (!checking.active) return true
 							expect(() => form.prepare()).toThrow(expect.objectContaining({ code: 'PENDING' }))
 							expect(() => form.submit()).toThrow(expect.objectContaining({ code: 'PENDING' }))
-							if (failure !== undefined) throw failure
+							if (failure.error !== undefined) throw failure.error
 							return true
 						},
 					},
 				},
 			],
 		})
-		checking = true
-		failure = new Error('Validator failed')
-		expect(() => form.prepare()).toThrow(failure)
+		checking.active = true
+		failure.error = new Error('Validator failed')
+		expect(() => form.prepare()).toThrow(failure.error)
 		expect(form.pending).toBeUndefined()
 		expect(form.baseline).toEqual({})
-		failure = undefined
+		failure.error = undefined
 		expect(form.prepare().success).toBe(true)
 	})
 
@@ -1027,18 +1000,18 @@ describe('Form acknowledged editing', () => {
 		const form = new Form({
 			fields: [{ control: 'text', name: 'name', default: 'A', rule: { custom: sequence } }],
 		})
-		let fills = 0
+		const fills = new ValidationCounter()
 		form.emitter.on('validate', () => {
 			if (form.errors.length !== 0) return
-			fills += 1
-			form.fill('name', fills === 1 ? 'B' : 'C')
+			fills.next()
+			form.fill('name', fills.count === 1 ? 'B' : 'C')
 		})
 		const prepared = form.prepare()
 		expect(prepared.success).toBe(true)
 		expect(requireValue(form.pending).values).toEqual({ name: 'B' })
 		expect(form.values).toEqual({ name: 'C' })
 		expect(form.errors).toEqual([{ field: 'name', message: 'late invalid' }])
-		expect(fills).toBe(2)
+		expect(fills.count).toBe(2)
 	})
 
 	it('keeps an initially failed preparation failed after a validation listener repairs it', () => {
@@ -1056,7 +1029,7 @@ describe('Form acknowledged editing', () => {
 	})
 
 	it('retains current errors when a validator edits while checking an owned snapshot', () => {
-		let edit = false
+		const edit = new ValidationGate()
 		const form = new Form({
 			fields: [
 				{
@@ -1065,8 +1038,8 @@ describe('Form acknowledged editing', () => {
 					default: 'A',
 					rule: {
 						custom: (value) => {
-							if (edit) {
-								edit = false
+							if (edit.active) {
+								edit.active = false
 								form.fill('name', 'B')
 							}
 							return value === 'B' ? 'B refused' : true
@@ -1075,7 +1048,7 @@ describe('Form acknowledged editing', () => {
 				},
 			],
 		})
-		edit = true
+		edit.active = true
 		expect(form.prepare()).toEqual({
 			success: false,
 			error: [{ field: 'name', message: 'B refused' }],
@@ -1099,7 +1072,7 @@ describe('Form acknowledged editing', () => {
 	})
 
 	it('keeps a successor prepared by a clear signal listener and aborts even if reset validation throws', () => {
-		let failure = false
+		const failure = new ValidationGate()
 		const form = new Form({
 			fields: [
 				{
@@ -1108,7 +1081,7 @@ describe('Form acknowledged editing', () => {
 					default: 'opening',
 					rule: {
 						custom: () => {
-							if (failure) throw new Error('reset failed')
+							if (failure.active) throw new Error('reset failed')
 							return true
 						},
 					},
@@ -1121,7 +1094,7 @@ describe('Form acknowledged editing', () => {
 		form.clear()
 		const successor = requireValue(form.pending)
 		expect(successor).not.toBe(original)
-		failure = true
+		failure.active = true
 		expect(() => form.clear()).toThrow('reset failed')
 		expect(successor.signal.aborted).toBe(true)
 		expect(form.pending).toBeUndefined()
@@ -1129,17 +1102,17 @@ describe('Form acknowledged editing', () => {
 
 	it('retains the terminal answer promise through acknowledgement', async () => {
 		const form = new Form(SCHEMA, { values: ANSWERED })
-		let resolved = false
+		const resolved = new AbortController()
 		void form.answer.then(() => {
-			resolved = true
+			resolved.abort()
 		})
 		form.prepare()
 		form.accept(requireValue(form.pending))
 		await Promise.resolve()
-		expect(resolved).toBe(false)
+		expect(resolved.signal.aborted).toBe(false)
 		expect(form.submit().success).toBe(true)
 		await form.answer
-		expect(resolved).toBe(true)
+		expect(resolved.signal.aborted).toBe(true)
 	})
 })
 
@@ -1160,17 +1133,17 @@ describe('Form submit', () => {
 				},
 			],
 		})
-		let armed = true
+		const armed = new AbortController()
 		form.emitter.on('validate', () => {
-			if (armed) {
-				armed = false
+			if (!armed.signal.aborted) {
+				armed.abort()
 				form.enable('x')
 			}
 		})
 
 		const result = form.submit()
 
-		expect(armed).toBe(false)
+		expect(armed.signal.aborted).toBe(true)
 		expect({
 			success: result.success,
 			status: form.status,
@@ -1186,7 +1159,7 @@ describe('Form submit', () => {
 	})
 
 	it('keeps an initially failed submit failed when its listener disables the erroring field', () => {
-		let calls = 0
+		const calls = new ValidationCounter()
 		const form = new Form({
 			fields: [
 				{
@@ -1194,25 +1167,25 @@ describe('Form submit', () => {
 					name: 'y',
 					rule: {
 						custom: () => {
-							calls += 1
-							return calls === 1 ? 'Not yet' : true
+							calls.next()
+							return calls.count === 1 ? 'Not yet' : true
 						},
 					},
 				},
 				{ control: 'text', name: 'x', rule: { required: true } },
 			],
 		})
-		let armed = true
+		const armed = new AbortController()
 		form.emitter.on('validate', () => {
-			if (armed) {
-				armed = false
+			if (!armed.signal.aborted) {
+				armed.abort()
 				form.disable('x')
 			}
 		})
 
 		const result = form.submit()
 
-		expect(armed).toBe(false)
+		expect(armed.signal.aborted).toBe(true)
 		expect(result.success).toBe(false)
 		expect(result.success ? [] : result.error.map((error) => error.rule)).toStrictEqual([
 			'required',
@@ -1242,11 +1215,11 @@ describe('Form submit', () => {
 			],
 		})
 		const submits = createRecorder<FormEventMap['submit']>()
-		let armed = true
+		const armed = new AbortController()
 		form.emitter.on('submit', submits.handler)
 		form.emitter.on('validate', () => {
-			if (armed) {
-				armed = false
+			if (!armed.signal.aborted) {
+				armed.abort()
 				form.fill('x', 'ready')
 				form.submit()
 			}
@@ -1254,7 +1227,7 @@ describe('Form submit', () => {
 
 		const result = form.submit()
 
-		expect(armed).toBe(false)
+		expect(armed.signal.aborted).toBe(true)
 		expect(submits.count).toBe(1)
 		expect(result).toStrictEqual({ success: true, value: { x: 'ready' } })
 		expect(calls.count).toBe(4)
@@ -1263,7 +1236,7 @@ describe('Form submit', () => {
 	})
 
 	it('emits submit once when a listener nests a submit after a passing evaluation', () => {
-		let calls = 0
+		const calls = new ValidationCounter()
 		const form = new Form({
 			fields: [
 				{
@@ -1271,29 +1244,29 @@ describe('Form submit', () => {
 					name: 'value',
 					rule: {
 						custom: () => {
-							calls += 1
-							return calls === 1 ? 'Not yet' : true
+							calls.next()
+							return calls.count === 1 ? 'Not yet' : true
 						},
 					},
 				},
 			],
 		})
 		const submits = createRecorder<FormEventMap['submit']>()
-		let armed = true
+		const armed = new AbortController()
 		form.emitter.on('submit', submits.handler)
 		form.emitter.on('validate', () => {
-			if (armed) {
-				armed = false
+			if (!armed.signal.aborted) {
+				armed.abort()
 				form.submit()
 			}
 		})
 
 		const result = form.submit()
 
-		expect(armed).toBe(false)
+		expect(armed.signal.aborted).toBe(true)
 		expect(submits.count).toBe(1)
 		expect(result).toStrictEqual({ success: true, value: {} })
-		expect(calls).toBe(3)
+		expect(calls.count).toBe(3)
 		expect(form.status).toBe('settled')
 	})
 
@@ -1636,7 +1609,7 @@ describe('Form destroy', () => {
 
 	it('settles submit before teardown requested by its validate listener', async () => {
 		const events: string[] = []
-		let validations = 0
+		const validations = new ValidationCounter()
 		const form = new Form(
 			{
 				fields: [
@@ -1646,8 +1619,8 @@ describe('Form destroy', () => {
 						default: 'before',
 						rule: {
 							custom: () => {
-								validations += 1
-								return validations >= 3 ? true : 'Not ready'
+								validations.next()
+								return validations.count >= 3 ? true : 'Not ready'
 							},
 						},
 					},
@@ -1759,7 +1732,7 @@ describe('Form rules', () => {
 	it('preserves partial mutation state when a custom validator throws', () => {
 		const failure = new Error('validator exploded')
 		const clears = createRecorder<FormEventMap['clear']>()
-		let throwing = false
+		const throwing = new ValidationGate()
 		const form = new Form(
 			{
 				fields: [
@@ -1769,7 +1742,7 @@ describe('Form rules', () => {
 						default: 'before',
 						rule: {
 							custom: (value) => {
-								if (throwing) throw failure
+								if (throwing.active) throw failure
 								return value === 'before' ? 'Before fill' : true
 							},
 						},
@@ -1779,7 +1752,7 @@ describe('Form rules', () => {
 			{ on: { clear: clears.handler } },
 		)
 
-		throwing = true
+		throwing.active = true
 		const fill = attempt(() => form.fill('name', 'after'))
 		expect(fill.success ? undefined : fill.error).toBe(failure)
 		expect(form.values).toStrictEqual({ name: 'after' })
@@ -1789,13 +1762,13 @@ describe('Form rules', () => {
 		expect(invalidate.success ? undefined : invalidate.error).toBe(failure)
 		expect(form.errors).toStrictEqual([{ field: 'name', message: 'Before fill' }])
 
-		throwing = false
+		throwing.active = false
 		expect(form.submit()).toStrictEqual({
 			success: false,
 			error: [{ field: 'name', message: 'After fill' }],
 		})
 
-		throwing = true
+		throwing.active = true
 		const clear = attempt(() => form.clear())
 		expect(clear.success ? undefined : clear.error).toBe(failure)
 		expect(form.values).toStrictEqual({ name: 'before' })
@@ -1803,7 +1776,7 @@ describe('Form rules', () => {
 		expect(form.errors).toStrictEqual([{ field: 'name', message: 'After fill' }])
 		expect(clears.count).toBe(0)
 
-		throwing = false
+		throwing.active = false
 		expect(form.submit()).toStrictEqual({
 			success: false,
 			error: [{ field: 'name', message: 'Before fill' }],
@@ -1820,10 +1793,7 @@ describe('Form rules', () => {
 					name: 'secret',
 					default: 'open',
 					rule: {
-						custom: (value, values) => {
-							seen.push(values)
-							return value === values.repeat ? true : 'Both entries must match'
-						},
+						custom: createRepeatValidator(seen),
 					},
 				},
 				{ control: 'text', name: 'repeat', default: 'open' },
@@ -1870,21 +1840,3 @@ describe('Form rules', () => {
 		expect(form.values.nickname).toBe('grace')
 	})
 })
-
-// Every mutating method, tried against one ended form, reported as the code each refusal carried.
-function refusalsOf(form: Form): readonly string[] {
-	const outcomes = [
-		attempt(() => form.fill('nickname', 'grace')),
-		attempt(() => form.touch('nickname')),
-		attempt(() => form.invalidate('nickname', 'Somebody already uses that name')),
-		attempt(() => form.disable('nickname')),
-		attempt(() => form.enable('nickname')),
-		attempt(() => form.submit()),
-		attempt(() => form.clear()),
-	]
-
-	return outcomes.map((outcome) => {
-		if (outcome.success) return 'none'
-		return isFormError(outcome.error) ? outcome.error.code : 'other'
-	})
-}

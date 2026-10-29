@@ -247,8 +247,8 @@ export class FormBinding implements FormBindingInterface {
 		if (this.#running || this.#reading) return
 		this.#running = true
 		try {
-			let turns = 0
-			while (this.#preserve !== undefined && !this.#destroyed && turns < 2) {
+			for (const _ of [0, 1]) {
+				if (this.#preserve === undefined || this.#destroyed) break
 				const retaining = this.#preserve
 				this.#preserve = undefined
 				this.#changed = false
@@ -261,7 +261,6 @@ export class FormBinding implements FormBindingInterface {
 					this.#notified = true
 					this.#emitter.emit('render')
 				}
-				turns += 1
 			}
 		} catch (error) {
 			this.#preserve = undefined
@@ -317,17 +316,21 @@ export class FormBinding implements FormBindingInterface {
 			owned.original === null
 		) {
 			// A model-owned disabled attribute cannot become a native exclusion on the next scan.
-			let ancestor = control.parentElement
-			while (ancestor !== null) {
+			const ancestors = control.ownerDocument.createTreeWalker(
+				control.getRootNode(),
+				NodeFilter.SHOW_ELEMENT,
+			)
+			ancestors.currentNode = control
+			while (true) {
+				const ancestor = ancestors.parentNode()
+				if (ancestor === null) return false
 				if (ancestor instanceof HTMLFieldSetElement && ancestor.disabled) {
 					const legend = Array.from(ancestor.children).find(
 						(child) => child instanceof HTMLLegendElement,
 					)
 					if (legend === undefined || !legend.contains(control)) return true
 				}
-				ancestor = ancestor.parentElement
 			}
-			return false
 		}
 		return control.matches(':disabled')
 	}
@@ -402,19 +405,11 @@ export class FormBinding implements FormBindingInterface {
 			const visible =
 				this.#document.touched.has(field.name) && !this.#document.disabled.has(field.name)
 			const group = this.#controls.get(field.name) ?? []
-			let feedback = this.#feedback.get(field.name)
-			if (
-				feedback === undefined &&
-				(group.length > 0 || this.#options?.feedback?.has(field.name))
-			) {
-				feedback = this.#element.ownerDocument.createElement('span')
-				feedback.id = `form-feedback-${crypto.randomUUID()}`
-				feedback.dataset.formFeedback = field.name
-				const destination = this.#options?.feedback?.get(field.name)
-				if (destination !== undefined) destination.append(feedback)
-				else (group.at(-1) ?? this.#element).insertAdjacentElement('afterend', feedback)
-				this.#feedback.set(field.name, feedback)
-			}
+			const feedback =
+				this.#feedback.get(field.name) ??
+				(group.length > 0 || this.#options?.feedback?.has(field.name)
+					? this.#createFeedback(field.name, group)
+					: undefined)
 			if (feedback !== undefined) {
 				if (feedback.textContent !== message) {
 					feedback.textContent = message
@@ -524,7 +519,6 @@ export class FormBinding implements FormBindingInterface {
 			control.value !== this.#readings.get(control)
 		)
 			return
-		let changed = false
 		if (control instanceof HTMLInputElement && control.type === 'file') {
 			// The browser alone owns bytes. A differing saved name cannot create a FileList.
 			const names = Array.from(control.files ?? [], (file) => file.name)
@@ -535,6 +529,35 @@ export class FormBinding implements FormBindingInterface {
 			}
 			return
 		}
+		const projected = this.#project(field, control, value)
+		this.#readings.set(control, control.value)
+		const before = control instanceof HTMLSelectElement ? this.#resets.get(control) : undefined
+		if (before !== undefined && control instanceof HTMLSelectElement) this.#resets.delete(control)
+		const changed =
+			before !== undefined && control instanceof HTMLSelectElement
+				? !matchesValue(
+						before,
+						Array.from(control.selectedOptions, (option) => option.value),
+					)
+				: projected
+		if (changed) {
+			this.#changed = true
+			this.#emitter.emit('write', control)
+		}
+	}
+
+	#createFeedback(name: string, group: readonly FormControl[]): HTMLElement {
+		const feedback = this.#element.ownerDocument.createElement('span')
+		feedback.id = `form-feedback-${crypto.randomUUID()}`
+		feedback.dataset.formFeedback = name
+		const destination = this.#options?.feedback?.get(name)
+		if (destination !== undefined) destination.append(feedback)
+		else (group.at(-1) ?? this.#element).insertAdjacentElement('afterend', feedback)
+		this.#feedback.set(name, feedback)
+		return feedback
+	}
+
+	#project(field: FormField, control: FormControl, value: FieldValue | undefined): boolean {
 		if (
 			control instanceof HTMLInputElement &&
 			(control.type === 'checkbox' || control.type === 'radio')
@@ -545,73 +568,68 @@ export class FormBinding implements FormBindingInterface {
 					: Array.isArray(value)
 						? value.includes(control.value)
 						: value === control.value
-			if (control.checked !== checked) {
-				control.checked = checked
-				changed = true
-			}
-		} else if (control instanceof HTMLSelectElement && field.control === 'list') {
-			const remaining = Array.from(control.options).filter((option) => !option.matches(':disabled'))
-			const selected: HTMLOptionElement[] = []
-			for (const entry of Array.isArray(value) ? value : []) {
-				const index = remaining.findIndex((option) => option.value === entry)
-				let option = index < 0 ? undefined : remaining.splice(index, 1)[0]
-				if (option === undefined) {
-					option = control.ownerDocument.createElement('option')
-					option.value = entry
-					option.text = entry
-					control.append(option)
-					changed = true
-				}
-				if (!option.selected) changed = true
-				option.selected = true
-				selected.push(option)
-			}
-			for (const option of remaining) {
-				if (option.selected) changed = true
-				option.selected = false
-			}
-			const ordered = Array.from(control.selectedOptions).filter(
-				(option) => !option.matches(':disabled'),
-			)
-			if (selected.some((option, index) => ordered[index] !== option)) {
-				control.append(...selected)
-				changed = true
-			}
-		} else if (control instanceof HTMLSelectElement && control.multiple) {
-			for (const option of Array.from(control.options)) {
+			const changed = control.checked !== checked
+			if (changed) control.checked = checked
+			return changed
+		}
+		if (control instanceof HTMLSelectElement && field.control === 'list')
+			return this.#select(control, value)
+		if (control instanceof HTMLSelectElement && control.multiple) {
+			const changes = Array.from(control.options).map((option) => {
 				const selected = Array.isArray(value) && value.includes(option.value)
-				if (option.selected !== selected) {
-					option.selected = selected
-					changed = true
-				}
-			}
-		} else {
-			const text = value === undefined ? '' : String(value)
-			if (
-				control.value !== text ||
-				(control instanceof HTMLInputElement && control.validity.badInput)
-			) {
-				const before = control.value
-				const invalid = control.validity.badInput
-				control.value = text
-				if (control.value !== before || invalid) changed = true
-			}
+				const changed = option.selected !== selected
+				if (changed) option.selected = selected
+				return changed
+			})
+			return changes.some(Boolean)
 		}
-		this.#readings.set(control, control.value)
-		if (control instanceof HTMLSelectElement) {
-			const before = this.#resets.get(control)
-			if (before !== undefined) {
-				this.#resets.delete(control)
-				changed = !matchesValue(
-					before,
-					Array.from(control.selectedOptions, (option) => option.value),
-				)
-			}
+		const text = value === undefined ? '' : String(value)
+		if (
+			control.value === text &&
+			!(control instanceof HTMLInputElement && control.validity.badInput)
+		)
+			return false
+		const before = control.value
+		const invalid = control.validity.badInput
+		control.value = text
+		return control.value !== before || invalid
+	}
+
+	#select(control: HTMLSelectElement, value: FieldValue | undefined): boolean {
+		const candidates = Array.from(control.options).filter((option) => !option.matches(':disabled'))
+		const selected: Array<{ readonly option: HTMLOptionElement; readonly changed: boolean }> = []
+		for (const entry of Array.isArray(value) ? value : []) {
+			const existing = candidates.find(
+				(option) =>
+					!selected.some((selection) => selection.option === option) && option.value === entry,
+			)
+			const option = existing ?? this.#createOption(control, entry)
+			const changed = !option.selected || existing === undefined
+			option.selected = true
+			selected.push({ option, changed })
 		}
-		if (changed) {
-			this.#changed = true
-			this.#emitter.emit('write', control)
-		}
+		const remaining = candidates.filter(
+			(option) => !selected.some((selection) => selection.option === option),
+		)
+		const changes = remaining.map((option) => {
+			const changed = option.selected
+			option.selected = false
+			return changed
+		})
+		const ordered = Array.from(control.selectedOptions).filter(
+			(option) => !option.matches(':disabled'),
+		)
+		const reordered = selected.some((selection, index) => ordered[index] !== selection.option)
+		if (reordered) control.append(...selected.map((selection) => selection.option))
+		return reordered || selected.some((selection) => selection.changed) || changes.some(Boolean)
+	}
+
+	#createOption(control: HTMLSelectElement, value: string): HTMLOptionElement {
+		const option = control.ownerDocument.createElement('option')
+		option.value = value
+		option.text = value
+		control.append(option)
+		return option
 	}
 
 	#attribute(element: Element, name: string, value: string | null): void {
@@ -836,13 +854,11 @@ export class FormBinding implements FormBindingInterface {
 	}
 
 	#onBlur(event: FocusEvent): void {
-		let control = event.target
-		for (const [native, presentation] of this.#options?.presentations ?? []) {
-			if (control === presentation) {
-				control = native
-				break
-			}
-		}
+		const target = event.target
+		const control =
+			Iterator.from(this.#options?.presentations ?? []).find(
+				([, presentation]) => target === presentation,
+			)?.[0] ?? target
 		if (
 			!isFormControl(control) ||
 			control.form !== this.#element ||

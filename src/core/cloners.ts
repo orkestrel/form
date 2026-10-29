@@ -1,6 +1,5 @@
-import type { JSONRecord } from '@orkestrel/contract'
 import type { FieldChoice, FieldRule, FieldValue, FormField, FormSchema } from './types.js'
-import { cloneJSONRecord, isArray, isContractError } from '@orkestrel/contract'
+import { attempt, cloneJSONRecord, isArray, isContractError } from '@orkestrel/contract'
 import { FormError } from './errors.js'
 
 /**
@@ -35,18 +34,15 @@ export function cloneChoices(choices: readonly FieldChoice[]): readonly FieldCho
 export function cloneFormField(field: FormField): FormField {
 	const rule: { rule?: Readonly<FieldRule> } =
 		field.rule === undefined ? {} : { rule: Object.freeze({ ...field.rule }) }
-	let meta: { meta?: JSONRecord } = {}
-
-	if (field.meta !== undefined) {
-		try {
-			meta = { meta: cloneJSONRecord(field.meta) }
-		} catch (error) {
-			if (!isContractError(error)) throw error
-			throw new FormError('SCHEMA', `Field "${field.name}" has metadata that cannot be owned`, {
-				field: field.name,
-			})
-		}
+	const metadata =
+		field.meta === undefined ? undefined : attempt(() => ({ meta: cloneJSONRecord(field.meta) }))
+	if (metadata !== undefined && !metadata.success) {
+		if (!isContractError(metadata.error)) throw metadata.error
+		throw new FormError('SCHEMA', `Field "${field.name}" has metadata that cannot be owned`, {
+			field: field.name,
+		})
 	}
+	const meta = metadata === undefined ? {} : metadata.value
 
 	switch (field.control) {
 		case 'select':

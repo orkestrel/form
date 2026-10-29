@@ -4,6 +4,7 @@ import type {
 	FieldError,
 	FieldControl,
 	FieldRuleName,
+	FieldRule,
 	FieldValue,
 	FormField,
 	FormGroup,
@@ -115,17 +116,17 @@ export function freezeEntry<T>(target: Record<string, T>, name: string, value: T
 export function matchesField(field: FormField, value: unknown): value is FieldValue {
 	if (isString(value) && value.length > STRING_LIMIT) return false
 
-	let entries: readonly unknown[] | undefined
-	if (isArray(value)) {
-		const length = attempt(() => value.length)
-		if (!length.success || length.value > LIST_LIMIT) return false
-
-		const read = readArrayEntries(value)
-		if (!read.success || !read.value.dense) return false
-
-		entries = read.value.entries
-		if (entries.some((entry) => !isString(entry) || entry.length > STRING_LIMIT)) return false
-	}
+	const read = isArray(value)
+		? attempt(() => {
+				const length = attempt(() => value.length)
+				if (!length.success || length.value > LIST_LIMIT) return undefined
+				const entries = readArrayEntries(value)
+				return entries.success && entries.value.dense ? entries.value.entries : undefined
+			})
+		: undefined
+	if (read !== undefined && (!read.success || read.value === undefined)) return false
+	const entries = read?.success ? read.value : undefined
+	if (entries?.some((entry) => !isString(entry) || entry.length > STRING_LIMIT)) return false
 
 	switch (field.control) {
 		case 'text':
@@ -252,32 +253,7 @@ export function evaluateField(
 	if (rule === undefined) return Object.freeze(errors)
 
 	if (rule.minimum !== undefined && appliesRule(field.control, 'minimum')) {
-		let failed = false
-
-		switch (field.control) {
-			case 'text':
-			case 'editor':
-			case 'password':
-				failed = isString(value) && isFiniteNumber(rule.minimum) && value.length < rule.minimum
-				break
-			case 'number':
-				failed = isFiniteNumber(value) && isFiniteNumber(rule.minimum) && value < rule.minimum
-				break
-			case 'date':
-			case 'time':
-			case 'datetime':
-				failed = isString(value) && isString(rule.minimum) && value < rule.minimum
-				break
-			case 'checkbox':
-			case 'list':
-			case 'file':
-				failed = isArray(value) && isFiniteNumber(rule.minimum) && value.length < rule.minimum
-				break
-			case 'color':
-			case 'confirm':
-			case 'select':
-				break
-		}
+		const failed = failsFieldBound(field, value, rule, true)
 
 		if (failed) {
 			errors.push(createFieldError(field, 'minimum', rule.minimum, messages))
@@ -285,32 +261,7 @@ export function evaluateField(
 	}
 
 	if (rule.maximum !== undefined && appliesRule(field.control, 'maximum')) {
-		let failed = false
-
-		switch (field.control) {
-			case 'text':
-			case 'editor':
-			case 'password':
-				failed = isString(value) && isFiniteNumber(rule.maximum) && value.length > rule.maximum
-				break
-			case 'number':
-				failed = isFiniteNumber(value) && isFiniteNumber(rule.maximum) && value > rule.maximum
-				break
-			case 'date':
-			case 'time':
-			case 'datetime':
-				failed = isString(value) && isString(rule.maximum) && value > rule.maximum
-				break
-			case 'checkbox':
-			case 'list':
-			case 'file':
-				failed = isArray(value) && isFiniteNumber(rule.maximum) && value.length > rule.maximum
-				break
-			case 'color':
-			case 'confirm':
-			case 'select':
-				break
-		}
+		const failed = failsFieldBound(field, value, rule, false)
 
 		if (failed) {
 			errors.push(createFieldError(field, 'maximum', rule.maximum, messages))
@@ -336,34 +287,17 @@ export function evaluateField(
 		: field.control === 'list' && isArray(value)
 			? value
 			: []
-	for (const constraint of ['pattern', 'email', 'url', 'alphanumeric', 'integer'] as const) {
+	const constraints: readonly FieldRuleName[] = [
+		'pattern',
+		'email',
+		'url',
+		'alphanumeric',
+		'integer',
+	]
+	for (const constraint of constraints) {
 		if (!appliesRule(field.control, constraint)) continue
 		for (const entry of entries) {
-			let failed = false
-			switch (constraint) {
-				case 'pattern': {
-					const pattern = rule.pattern
-					if (pattern !== undefined) {
-						const outcome = attempt(
-							() => pattern.length <= PATTERN_LIMIT && new RegExp(pattern).test(entry),
-						)
-						failed = !outcome.success || !outcome.value
-					}
-					break
-				}
-				case 'email':
-					failed = rule.email === true && !EMAIL_PATTERN.test(entry)
-					break
-				case 'url':
-					failed = rule.url === true && !URL_PATTERN.test(entry)
-					break
-				case 'alphanumeric':
-					failed = rule.alphanumeric === true && !ALPHANUMERIC_PATTERN.test(entry)
-					break
-				case 'integer':
-					failed = rule.integer === true && !INTEGER_PATTERN.test(entry)
-					break
-			}
+			const failed = failsTextRule(rule, constraint, entry)
 			if (failed) {
 				const error = createFieldError(field, constraint, undefined, messages)
 				errors.push(
@@ -728,10 +662,9 @@ export function extractGroups(schema: FormSchema): readonly FormGroup[] {
  */
 export function auditSchema(schema: FormSchema): readonly string[] {
 	const faults: string[] = []
-	const fields = new Set<string>()
-	const groups = new Set<string>()
-	let choiceExceeded: string | undefined
-	let nameExceeded = schema.name !== undefined && schema.name.length > NAME_LIMIT
+	const fields: string[] = []
+	const groups: string[] = []
+	const named = schema.name !== undefined && schema.name.length > NAME_LIMIT
 
 	if (schema.fields.length > FIELD_LIMIT) {
 		faults.push(`Schema declares more than ${FIELD_LIMIT} fields`)
@@ -740,102 +673,89 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 		faults.push(`Schema declares more than ${GROUP_LIMIT} groups`)
 	}
 
-	if (schema.groups !== undefined) {
-		const count = Math.min(schema.groups.length, GROUP_LIMIT + 1)
-		for (let index = 0; index < count; index += 1) {
-			const group = schema.groups[index]
-			if (group !== undefined && group.name.length > NAME_LIMIT) nameExceeded = true
-		}
-	}
-
+	const groupNames =
+		schema.groups === undefined
+			? []
+			: Array.from({ length: Math.min(schema.groups.length, GROUP_LIMIT + 1) }, (_, index) => {
+					const group = schema.groups?.[index]
+					return group !== undefined && group.name.length > NAME_LIMIT
+				})
 	const fieldCount = Math.min(schema.fields.length, FIELD_LIMIT + 1)
-	for (let index = 0; index < fieldCount; index += 1) {
-		const field = schema.fields[index]
-		if (field === undefined) continue
-
-		if (
-			field.name.length > NAME_LIMIT ||
-			(field.group !== undefined && field.group.length > NAME_LIMIT)
-		) {
-			nameExceeded = true
-		}
-		if (
-			choiceExceeded === undefined &&
-			(field.control === 'select' || field.control === 'checkbox') &&
-			field.choices.length > CHOICE_LIMIT
-		) {
-			choiceExceeded = field.name
-		}
-	}
+	const bounds = Array.from({ length: fieldCount }, (_, index) => index).reduce<{
+		readonly name: boolean
+		readonly choice: string | undefined
+	}>(
+		(previous, index) => {
+			const field = schema.fields[index]
+			if (field === undefined) return previous
+			const name =
+				field.name.length > NAME_LIMIT ||
+				(field.group !== undefined && field.group.length > NAME_LIMIT)
+			const choice =
+				previous.choice === undefined &&
+				(field.control === 'select' || field.control === 'checkbox') &&
+				field.choices.length > CHOICE_LIMIT
+					? field.name
+					: previous.choice
+			return { name: previous.name || name, choice }
+		},
+		{ name: named || groupNames.some(Boolean), choice: undefined },
+	)
+	const choiceExceeded = bounds.choice
+	const nameExceeded = bounds.name
 
 	if (choiceExceeded !== undefined) {
 		faults.push(`Field "${choiceExceeded}" offers more than ${CHOICE_LIMIT} choices`)
 	}
 	if (nameExceeded) faults.push(`Schema contains a name longer than ${NAME_LIMIT}`)
 
-	const pending: unknown[] = [schema]
-	const metadata: boolean[] = [false]
-	let position = 0
-	let stringExceeded = false
-	let textExceeded = false
-	let nodeExceeded = false
-	let text = 0
-
-	while (position < pending.length) {
-		const node = pending[position]
-		const inMeta = metadata[position] === true
-		position += 1
-
-		if (isString(node)) {
-			if (node.length > STRING_LIMIT) stringExceeded = true
-			text = Math.min(TEXT_LIMIT + 1, text + node.length)
-			if (text > TEXT_LIMIT) textExceeded = true
-			continue
-		}
-
-		if (isArray(node)) {
-			const length = attempt(() => node.length)
-			if (!length.success || length.value > NODE_LIMIT - pending.length) {
-				nodeExceeded = true
-				continue
-			}
-
-			const read = readArrayEntries(node)
-			if (!read.success || !read.value.dense) continue
-
-			for (let index = 0; index < read.value.entries.length; index += 1) {
-				const entry = read.value.entries[index]
-				if (entry !== undefined) {
-					pending.push(entry)
-					metadata.push(inMeta)
+	const pending: Array<{ readonly node: unknown; readonly meta: boolean }> = [
+		{ node: schema, meta: false },
+	]
+	const totals = Iterator.from(pending).reduce(
+		(previous, current) => {
+			const node = current.node
+			const inMeta = current.meta
+			if (isString(node)) {
+				const text = Math.min(TEXT_LIMIT + 1, previous.text + node.length)
+				return {
+					...previous,
+					text,
+					stringExceeded: previous.stringExceeded || node.length > STRING_LIMIT,
+					textExceeded: previous.textExceeded || text > TEXT_LIMIT,
 				}
 			}
-			continue
-		}
-
-		if (!isRecord(node)) continue
-
-		const keys = attempt(() => Object.keys(node))
-		if (!keys.success) continue
-
-		for (const key of keys.value) {
-			if (inMeta) {
-				if (key.length > STRING_LIMIT) stringExceeded = true
-				text = Math.min(TEXT_LIMIT + 1, text + key.length)
-				if (text > TEXT_LIMIT) textExceeded = true
+			if (isArray(node)) {
+				const length = attempt(() => node.length)
+				if (!length.success || length.value > NODE_LIMIT - pending.length)
+					return { ...previous, nodeExceeded: true }
+				const read = readArrayEntries(node)
+				if (!read.success || !read.value.dense) return previous
+				for (const entry of read.value.entries) {
+					if (entry !== undefined) pending.push({ node: entry, meta: inMeta })
+				}
+				return previous
 			}
-
-			const value = attempt(() => node[key])
-			if (!value.success || value.value === undefined) continue
-			if (pending.length >= NODE_LIMIT) {
-				nodeExceeded = true
-				continue
-			}
-
-			pending.push(value.value)
-			metadata.push(inMeta || key === 'meta')
-		}
-	}
+			if (!isRecord(node)) return previous
+			const keys = attempt(() => Object.keys(node))
+			if (!keys.success) return previous
+			return keys.value.reduce((observed, key) => {
+				const text = inMeta ? Math.min(TEXT_LIMIT + 1, observed.text + key.length) : observed.text
+				const value = attempt(() => node[key])
+				const exceeded = value.success && value.value !== undefined && pending.length >= NODE_LIMIT
+				if (value.success && value.value !== undefined && !exceeded)
+					pending.push({ node: value.value, meta: inMeta || key === 'meta' })
+				return {
+					text,
+					stringExceeded: observed.stringExceeded || (inMeta && key.length > STRING_LIMIT),
+					textExceeded: observed.textExceeded || text > TEXT_LIMIT,
+					nodeExceeded: observed.nodeExceeded || exceeded,
+				}
+			}, previous)
+		},
+		{ text: 0, stringExceeded: false, textExceeded: false, nodeExceeded: false },
+	)
+	const { stringExceeded, textExceeded, nodeExceeded } = totals
 
 	if (stringExceeded) faults.push(`Schema contains a string longer than ${STRING_LIMIT}`)
 	if (textExceeded) faults.push(`Schema retains more than ${TEXT_LIMIT} string code units`)
@@ -843,23 +763,24 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 
 	if (schema.groups !== undefined) {
 		const count = Math.min(schema.groups.length, GROUP_LIMIT + 1)
-		for (let index = 0; index < count; index += 1) {
+		for (const index of Array.from({ length: count }, (_, position) => position)) {
 			const group = schema.groups[index]
 			if (group === undefined) continue
-			if (groups.has(group.name)) faults.push(`Group "${group.name}" is declared more than once`)
-			groups.add(group.name)
+			if (groups.includes(group.name))
+				faults.push(`Group "${group.name}" is declared more than once`)
+			groups.push(group.name)
 		}
 	}
 
-	for (let fieldIndex = 0; fieldIndex < fieldCount; fieldIndex += 1) {
+	for (const fieldIndex of Array.from({ length: fieldCount }, (_, position) => position)) {
 		const field = schema.fields[fieldIndex]
 		if (field === undefined) continue
 		if (field.name.length === 0) faults.push('Field "" has an empty name')
 		if (field.name === '__proto__') faults.push('Field "__proto__" has a refused name')
-		if (fields.has(field.name)) faults.push(`Field "${field.name}" is declared more than once`)
-		fields.add(field.name)
+		if (fields.includes(field.name)) faults.push(`Field "${field.name}" is declared more than once`)
+		fields.push(field.name)
 
-		if (field.group !== undefined && !groups.has(field.group)) {
+		if (field.group !== undefined && !groups.includes(field.group)) {
 			faults.push(`Field "${field.name}" references missing group "${field.group}"`)
 		}
 
@@ -885,19 +806,18 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 		}
 
 		if (field.control === 'select' || field.control === 'checkbox') {
-			const choices = new Set<string>()
+			const choices: string[] = []
 			const count = Math.min(field.choices.length, CHOICE_LIMIT + 1)
-			let enabled = 0
-
-			for (let index = 0; index < count; index += 1) {
+			const enabled = Array.from({ length: count }, (_, index) => index).reduce((total, index) => {
 				const choice = field.choices[index]
-				if (choice === undefined) continue
-				if (choice.disabled !== true) enabled += 1
-				if (choices.has(choice.value)) {
+				if (choice === undefined) return total
+				const available = choice.disabled !== true
+				if (choices.includes(choice.value)) {
 					faults.push(`Field "${field.name}" offers choice "${choice.value}" more than once`)
 				}
-				choices.add(choice.value)
-			}
+				choices.push(choice.value)
+				return total + (available ? 1 : 0)
+			}, 0)
 
 			if (
 				field.control === 'select' &&
@@ -1041,4 +961,86 @@ export function auditSchema(schema: FormSchema): readonly string[] {
 	}
 
 	return Object.freeze(faults)
+}
+
+/**
+ * Checks whether a field value violates a numeric or temporal bound.
+ * @example
+ * ```ts
+ * failsFieldBound({ control: 'text', name: 'name' }, 'Ada', { minimum: 4 }, true) // true
+ * ```
+ */
+export function failsFieldBound(
+	field: FormField,
+	value: FieldValue | undefined,
+	rule: FieldRule,
+	minimum: boolean,
+): boolean {
+	const bound = minimum ? 'minimum' : 'maximum'
+	switch (field.control) {
+		case 'text':
+		case 'editor':
+		case 'password':
+			return (
+				isString(value) &&
+				isFiniteNumber(rule[bound]) &&
+				(minimum ? value.length < rule[bound] : value.length > rule[bound])
+			)
+		case 'number':
+			return (
+				isFiniteNumber(value) &&
+				isFiniteNumber(rule[bound]) &&
+				(minimum ? value < rule[bound] : value > rule[bound])
+			)
+		case 'date':
+		case 'time':
+		case 'datetime':
+			return (
+				isString(value) &&
+				isString(rule[bound]) &&
+				(minimum ? value < rule[bound] : value > rule[bound])
+			)
+		case 'checkbox':
+		case 'list':
+		case 'file':
+			return (
+				isArray(value) &&
+				isFiniteNumber(rule[bound]) &&
+				(minimum ? value.length < rule[bound] : value.length > rule[bound])
+			)
+		case 'color':
+		case 'confirm':
+		case 'select':
+			return false
+	}
+}
+
+/**
+ * Checks whether text violates an enabled lexical field rule.
+ * @example
+ * ```ts
+ * failsTextRule({ email: true }, 'email', 'invalid') // true
+ * ```
+ */
+export function failsTextRule(rule: FieldRule, constraint: FieldRuleName, entry: string): boolean {
+	switch (constraint) {
+		case 'pattern': {
+			const pattern = rule.pattern
+			if (pattern === undefined) return false
+			const outcome = attempt(
+				() => pattern.length <= PATTERN_LIMIT && new RegExp(pattern).test(entry),
+			)
+			return !outcome.success || !outcome.value
+		}
+		case 'email':
+			return rule.email === true && !EMAIL_PATTERN.test(entry)
+		case 'url':
+			return rule.url === true && !URL_PATTERN.test(entry)
+		case 'alphanumeric':
+			return rule.alphanumeric === true && !ALPHANUMERIC_PATTERN.test(entry)
+		case 'integer':
+			return rule.integer === true && !INTEGER_PATTERN.test(entry)
+		default:
+			return false
+	}
 }

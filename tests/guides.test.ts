@@ -68,6 +68,7 @@ await new GuideCommand({
 	} = await import('@orkestrel/guide')
 	const { createRecorder, requireValue } = await import('@orkestrel/test')
 	const barrel = await import('@src/core')
+	const { matchPassword, validateBusiness, validateAddresses } = await import('./setup.js')
 	const {
 		auditSchema,
 		appliesRule,
@@ -77,7 +78,6 @@ await new GuideCommand({
 		cloneValue,
 		computeDefaults,
 		createForm,
-		EMAIL_PATTERN,
 		evaluateField,
 		evaluateForm,
 		extractChanges,
@@ -384,8 +384,7 @@ await new GuideCommand({
 		})
 
 		it('runs the custom seam against the rest of the form', () => {
-			const matches: FieldValidator = (value, values) =>
-				value === values.password ? true : 'Both passwords must match'
+			const matches: FieldValidator = matchPassword
 			const again: PasswordField = { control: 'password', name: 'again', rule: { custom: matches } }
 
 			expect(evaluateField(again, 'hunter3', { password: 'hunter2' })).toStrictEqual([
@@ -394,8 +393,7 @@ await new GuideCommand({
 		})
 
 		it('runs a custom rule on an absent value for a required-when check', () => {
-			const whenBusiness: FieldValidator = (value, values) =>
-				values.account === 'business' && value === undefined ? 'A VAT number is required' : true
+			const whenBusiness: FieldValidator = validateBusiness
 			const vat: TextField = { control: 'text', name: 'vat', rule: { custom: whenBusiness } }
 
 			expect(evaluateField(vat, undefined, { account: 'business' })).toStrictEqual([
@@ -405,14 +403,7 @@ await new GuideCommand({
 		})
 
 		it('closes an address list with a custom rule and the exported email pattern', () => {
-			const addresses: FieldValidator = (value) =>
-				typeof value !== 'string' ||
-				value
-					.split(',')
-					.map((entry) => entry.trim())
-					.every((entry) => EMAIL_PATTERN.test(entry))
-					? true
-					: 'Every address must be valid'
+			const addresses: FieldValidator = validateAddresses
 			const to: TextField = { control: 'text', name: 'to', rule: { custom: addresses } }
 
 			expect(evaluateField(to, 'ada@example.com, grace@example.com', {})).toStrictEqual([])

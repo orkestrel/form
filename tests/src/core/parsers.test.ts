@@ -1,5 +1,11 @@
-import type { FieldRule, FormField, FormInterface, FormSchema, FormValues } from '@src/core'
-import { GUARD_DEPTH_LIMIT } from '@orkestrel/contract'
+import {
+	receiveAbandonment,
+	ValidationCounter,
+	passValidation,
+	createAccessorMeta,
+} from '../../setup.js'
+import type { FieldRule, FormField, FormSchema, FormValues } from '@src/core'
+import { attempt, GUARD_DEPTH_LIMIT } from '@orkestrel/contract'
 import { createHostileValues, roundTripJSON } from '@orkestrel/test'
 import {
 	Form,
@@ -14,15 +20,6 @@ import {
 	serializeForm,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
-
-async function receiveAbandonment(form: FormInterface): Promise<unknown> {
-	try {
-		await form.answer
-		return undefined
-	} catch (error: unknown) {
-		return error
-	}
-}
 
 describe('parseValue', () => {
 	it('accepts typed values and only the two terminal lexical coercions', () => {
@@ -100,11 +97,11 @@ describe('parseValue', () => {
 		const schema: FormSchema = { fields: [number, checkbox] }
 		const numeric = `${'0'.repeat(STRING_LIMIT - 1)}1`
 		const oversized = `${'0'.repeat(STRING_LIMIT)}1`
-		let reads = 0
+		const reads = new ValidationCounter()
 		const observed = { value: 'one', label: 'One' }
 		Object.defineProperty(observed, 'disabled', {
 			get: () => {
-				reads += 1
+				reads.next()
 				return false
 			},
 			enumerable: true,
@@ -117,7 +114,7 @@ describe('parseValue', () => {
 		expect(parseValue(checkbox, values)).toStrictEqual(values)
 		expect(parseValue(checkbox, overflow)).toBeUndefined()
 		expect(parseValue(guarded, tooMany)).toBeUndefined()
-		expect(reads).toBe(0)
+		expect(reads.count).toBe(0)
 		expect(parseValues(schema, { number: numeric, choices: values })).toStrictEqual({
 			number: 1,
 			choices: values,
@@ -171,7 +168,7 @@ describe('parseValues', () => {
 
 describe('parseForm', () => {
 	it('drops custom without changing the caller schema', () => {
-		const custom = (): true => true
+		const custom = passValidation
 		const schema: FormSchema = {
 			fields: [{ control: 'text', name: 'name', rule: { required: true, custom } }],
 		}
@@ -226,11 +223,9 @@ describe('parseForm', () => {
 
 	it('never throws for hostile input and refuses every corpus member', () => {
 		for (const [index, value] of createHostileValues().entries()) {
-			let parsed: FormSchema | undefined
-			expect(() => {
-				parsed = parseForm(value)
-			}, `hostile value ${index}`).not.toThrow()
-			expect(parsed, `hostile value ${index}`).toBeUndefined()
+			const parsed = attempt(() => parseForm(value))
+			expect(parsed.success, `hostile value ${index}`).toBe(true)
+			expect(parsed.success ? parsed.value : undefined, `hostile value ${index}`).toBeUndefined()
 		}
 	})
 
@@ -272,11 +267,7 @@ describe('parseForm', () => {
 				{
 					control: 'text',
 					name: 'email',
-					meta: {
-						get icon() {
-							return 'mail'
-						},
-					},
+					meta: createAccessorMeta(),
 				},
 			],
 		}
@@ -299,13 +290,10 @@ describe('parseForm', () => {
 	it('refuses metadata that is invalid or exceeds its retained budgets', () => {
 		const cycle: Record<string, unknown> = {}
 		cycle.self = cycle
-		const deep: Record<string, unknown> = {}
-		let current = deep
-		for (let index = 0; index <= GUARD_DEPTH_LIMIT; index += 1) {
-			const next: Record<string, unknown> = {}
-			current.next = next
-			current = next
-		}
+		const deep = Array.from({ length: GUARD_DEPTH_LIMIT + 1 }).reduce<Record<string, unknown>>(
+			(next) => ({ next }),
+			{},
+		)
 		const symbol = { visible: true }
 		Object.defineProperty(symbol, Symbol('hidden'), { value: true, enumerable: true })
 		const cases: readonly unknown[] = [
@@ -410,7 +398,10 @@ describe('wire round trip', () => {
 		}
 		const schema: FormSchema = {
 			...expected,
-			fields: [{ ...text, rule: { ...textRule, custom: () => true } }, ...expected.fields.slice(1)],
+			fields: [
+				{ ...text, rule: { ...textRule, custom: passValidation } },
+				...expected.fields.slice(1),
+			],
 		}
 		const serialized = serializeForm(schema)
 		const textJSON = JSON.stringify(serialized)

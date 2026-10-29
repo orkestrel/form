@@ -1,5 +1,4 @@
-import type { JSONValue } from '@orkestrel/contract'
-import type { FieldValue, FormSchema } from '@src/core'
+import { readList, measureLongest, countText, countLeaves } from './setup.js'
 import {
 	FIELD_CONTROLS,
 	RULE_MESSAGES,
@@ -11,7 +10,7 @@ import {
 	matchesField,
 	serializeForm,
 } from '@src/core'
-import { isArray, isRecord, isString } from '@orkestrel/contract'
+import { isArray, isString } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
 import {
 	ANSWER_CASES,
@@ -46,9 +45,6 @@ const OVERSIZED_STRING = 'x'.repeat(STRING_LIMIT + 1)
  * @param value - The field value to read.
  * @returns The list entries, or an empty list.
  */
-function readList(value: FieldValue): readonly string[] {
-	return isArray<string>(value) ? value : []
-}
 
 /**
  * Collect every string a serialized schema retains, including record keys.
@@ -60,31 +56,6 @@ function readList(value: FieldValue): readonly string[] {
  * @param schema - The schema to project and walk.
  * @returns Every retained string in traversal order.
  */
-function collectStrings(schema: FormSchema): readonly string[] {
-	const found: string[] = []
-	const pending: JSONValue[] = [serializeForm(schema)]
-
-	while (pending.length > 0) {
-		const node = pending.pop()
-
-		if (isString(node)) {
-			found.push(node)
-			continue
-		}
-		if (isArray<JSONValue>(node)) {
-			pending.push(...node)
-			continue
-		}
-		if (!isRecord(node)) continue
-
-		for (const [key, value] of Object.entries(node)) {
-			found.push(key)
-			if (value !== undefined) pending.push(value)
-		}
-	}
-
-	return found
-}
 
 /**
  * Measure the longest string a schema retains.
@@ -92,9 +63,6 @@ function collectStrings(schema: FormSchema): readonly string[] {
  * @param schema - The schema to measure.
  * @returns The greatest retained string length, or zero when the schema retains none.
  */
-function measureLongest(schema: FormSchema): number {
-	return collectStrings(schema).reduce((longest, text) => Math.max(longest, text.length), 0)
-}
 
 /**
  * Count the code units a schema's fields retain across their controls, names, and metadata.
@@ -107,21 +75,6 @@ function measureLongest(schema: FormSchema): number {
  * @param schema - The schema to measure.
  * @returns The retained code-unit total.
  */
-function countText(schema: FormSchema): number {
-	let total = 0
-
-	for (const field of schema.fields) {
-		total += field.control.length + field.name.length
-		if (field.meta === undefined) continue
-
-		for (const [key, value] of Object.entries(field.meta)) {
-			total += key.length
-			if (isString(value)) total += value.length
-		}
-	}
-
-	return total
-}
 
 /**
  * Count the leaves a schema's field metadata holds, where a list contributes its entries.
@@ -129,19 +82,6 @@ function countText(schema: FormSchema): number {
  * @param schema - The schema to measure.
  * @returns The metadata leaf total.
  */
-function countLeaves(schema: FormSchema): number {
-	let total = 0
-
-	for (const field of schema.fields) {
-		if (field.meta === undefined) continue
-
-		for (const value of Object.values(field.meta)) {
-			total += isArray(value) ? value.length : 1
-		}
-	}
-
-	return total
-}
 
 describe('answer and change tables', () => {
 	it('marks every falsy answer as answered and every blank string as unanswered', () => {

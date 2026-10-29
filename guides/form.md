@@ -207,6 +207,18 @@ projection.
 | `serializeForm`    | function | Projects a schema into JSON while removing custom validators and absent values. |
 | `extractGroups`    | function | Selects referenced groups in first-reference field order.                       |
 | `auditSchema`      | function | Audits a structurally valid schema for domain invariants.                       |
+| `failsFieldBound`  | function | Checks whether a field value violates a numeric or temporal bound.              |
+| `failsTextRule`    | function | Checks whether text violates an enabled lexical field rule.                     |
+
+The evaluation engine exposes its bound and lexical predicates for independent rule checks.
+The boolean selects the minimum bound when true and the maximum bound when false.
+
+```ts
+import { failsFieldBound, failsTextRule } from '@orkestrel/form'
+
+failsFieldBound({ control: 'text', name: 'name' }, 'Ada', { minimum: 4 }, true) // true
+failsTextRule({ email: true }, 'email', 'invalid') // true
+```
 
 ### Cloners
 
@@ -1962,6 +1974,11 @@ The native binding exposes only synchronization and teardown methods.
 `FormError` carries a machine-readable `code` and an optional structured `context`. Narrow a caught
 value with `isFormError` and branch on `code`; never match on message text. A custom validator's own
 throw is the caller's exception and escapes unchanged.
+
+`isFormError` and `isFormBindingError` accept self-branded instances from another installed copy
+and subclass instances, even when their `name` differs. Each guard checks the global `Error`
+prototype chain, its own identity brand, its declared code, message, and context. Unbranded
+look-alikes, transparent proxies, and plain branded objects are refused.
 
 | Code        | Raised when                                                                                                                                                                                                                       |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

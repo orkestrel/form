@@ -1,16 +1,8 @@
-import type { FormSchema } from '@src/core'
+import { FACTORY_SCHEMA as SCHEMA } from '../../setup.js'
 import { createForm, Form, isFormError } from '@src/core'
 import { attempt } from '@orkestrel/contract'
 import { createRecorder } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
-
-const SCHEMA: FormSchema = {
-	label: 'Sign up',
-	fields: [
-		{ control: 'text', name: 'email', label: 'Email', rule: { required: true, email: true } },
-		{ control: 'confirm', name: 'terms', label: 'I accept the terms', rule: { required: true } },
-	],
-}
 
 describe('createForm', () => {
 	it('opens a form over the schema it is given', () => {

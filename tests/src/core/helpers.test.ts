@@ -1,3 +1,4 @@
+import { createListValidator, failSerialization, createFailureSchema } from '../../setup.js'
 import type {
 	FieldControl,
 	FieldRuleName,
@@ -23,6 +24,8 @@ import {
 	createFieldError,
 	defineEntry,
 	evaluateField,
+	failsFieldBound,
+	failsTextRule,
 	evaluateForm,
 	extractChanges,
 	extractGroups,
@@ -136,10 +139,7 @@ describe('open list', () => {
 			rule: {
 				pattern: '^harbor',
 				email: true,
-				custom: (value) => {
-					calls.push(value)
-					return 'List review'
-				},
+				custom: createListValidator(calls),
 			},
 		}
 		expect(
@@ -411,7 +411,7 @@ describe('matchesField', () => {
 
 describe('evaluateField', () => {
 	it('reports required first for every absent control and then runs custom', () => {
-		let received: FieldValue | undefined = 'not called'
+		const received: Array<FieldValue | undefined> = []
 
 		expect(
 			evaluateField(
@@ -422,7 +422,7 @@ describe('evaluateField', () => {
 						required: true,
 						minimum: 2,
 						custom: (value) => {
-							received = value
+							received.push(value)
 							return 'Custom failure'
 						},
 					},
@@ -497,7 +497,7 @@ describe('evaluateField', () => {
 		expect(
 			evaluateField({ control: 'file', name: 'file', rule: { required: true } }, undefined, {}),
 		).toHaveLength(1)
-		expect(received).toBeUndefined()
+		expect(received).toStrictEqual([undefined])
 	})
 
 	it('lets custom pass, fail conditionally, or throw on absence', () => {
@@ -932,7 +932,7 @@ describe('form helpers', () => {
 					name: 'choice',
 					group: 'account',
 					choices: [{ value: 'one', label: 'One' }],
-					rule: { required: true, custom: () => 'Never serialize me' },
+					rule: { required: true, custom: failSerialization },
 				},
 				{ control: 'file', name: 'files', accept: ['image/png', '.jpg'], multiple: true },
 			],
@@ -1005,17 +1005,7 @@ describe('form helpers', () => {
 
 	it('preserves a foreign metadata throw by identity', () => {
 		const failure = new Error('metadata read failed')
-		const schema: FormSchema = {
-			fields: [
-				{
-					control: 'text',
-					name: 'email',
-					get meta(): never {
-						throw failure
-					},
-				},
-			],
-		}
+		const schema = createFailureSchema(failure)
 		const outcome = attempt(() => serializeForm(schema))
 		const error = outcome.success ? undefined : outcome.error
 
@@ -1557,5 +1547,36 @@ describe('control and rule matrix', () => {
 
 		expect(pairs).toHaveLength(FIELD_CONTROLS.length * MATRIX_RULES.length)
 		expect(new Set(pairs).size).toBe(FIELD_CONTROLS.length * MATRIX_RULES.length)
+	})
+})
+
+describe('extracted rule predicates', () => {
+	it('checks bounds with the control measurement and selected direction', () => {
+		const text: FormField = { control: 'text', name: 'name' }
+		const number: FormField = { control: 'number', name: 'age' }
+		const date: FormField = { control: 'date', name: 'day' }
+		const list: FormField = { control: 'list', name: 'to' }
+		const confirm: FormField = { control: 'confirm', name: 'ok' }
+		expect(failsFieldBound(text, 'Ada', { minimum: 4 }, true)).toBe(true)
+		expect(failsFieldBound(text, 'Ada', { maximum: 3 }, false)).toBe(false)
+		expect(failsFieldBound(number, 8, { maximum: 7 }, false)).toBe(true)
+		expect(failsFieldBound(date, '2026-01-01', { minimum: '2026-02-01' }, true)).toBe(true)
+		expect(failsFieldBound(list, ['a'], { minimum: 2 }, true)).toBe(true)
+		expect(failsFieldBound(confirm, false, { minimum: 1 }, true)).toBe(false)
+		expect(failsFieldBound(text, undefined, { minimum: 1 }, true)).toBe(false)
+	})
+
+	it('checks enabled lexical rules and contains invalid patterns', () => {
+		expect(failsTextRule({ email: true }, 'email', 'invalid')).toBe(true)
+		expect(failsTextRule({ email: true }, 'email', 'ada@example.com')).toBe(false)
+		expect(failsTextRule({}, 'email', 'invalid')).toBe(false)
+		expect(failsTextRule({}, 'pattern', 'anything')).toBe(false)
+		expect(failsTextRule({ pattern: '[' }, 'pattern', 'anything')).toBe(true)
+		expect(failsTextRule({ pattern: '^a$' }, 'pattern', 'a')).toBe(false)
+		expect(failsTextRule({ pattern: 'a'.repeat(PATTERN_LIMIT + 1) }, 'pattern', 'a')).toBe(true)
+		expect(failsTextRule({ url: true }, 'url', 'invalid')).toBe(true)
+		expect(failsTextRule({ alphanumeric: true }, 'alphanumeric', '!')).toBe(true)
+		expect(failsTextRule({ integer: true }, 'integer', '1.5')).toBe(true)
+		expect(failsTextRule({ required: true }, 'required', '')).toBe(false)
 	})
 })

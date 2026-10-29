@@ -1,5 +1,5 @@
 import type { JSONRecord } from '@orkestrel/contract'
-import { isInstance } from '@orkestrel/contract'
+import { holds, INTRINSICS, isInstance, isString, isRecord, isJSONValue } from '@orkestrel/contract'
 import type { FormErrorCode } from './types.js'
 
 /**
@@ -31,6 +31,7 @@ export class FormError extends Error {
 	 */
 	constructor(code: FormErrorCode, message: string, context?: JSONRecord) {
 		super(message)
+		Object.defineProperty(this, Symbol.for('@orkestrel/form.FormError'), { value: this })
 		this.name = 'FormError'
 		this.code = code
 		if (context !== undefined) this.context = context
@@ -40,9 +41,25 @@ export class FormError extends Error {
 /**
  * Determines whether an unknown value is a form error.
  *
+ * @remarks
+ * Accepts self-branded errors across package copies and subclasses without checking their name.
+ * Refuses unbranded look-alikes, plain objects, and transparent proxies.
+ *
  * @param input - The value to inspect.
  * @returns True if the value is a {@link FormError} instance; false otherwise.
  */
 export function isFormError(input: unknown): input is FormError {
-	return isInstance(input, FormError)
+	return holds(() => {
+		if (!isInstance(input, Error) || INTRINSICS.prototype(input) === Error.prototype) return false
+		if (INTRINSICS.describe(input, Symbol.for('@orkestrel/form.FormError'))?.value !== input)
+			return false
+		const code: unknown = INTRINSICS.reflect.read(input, 'code')
+		const context: unknown = INTRINSICS.reflect.read(input, 'context')
+		return (
+			isString(code) &&
+			['SCHEMA', 'FIELD', 'CONTROL', 'SETTLED', 'ABANDONED', 'PENDING'].includes(code) &&
+			isString(INTRINSICS.reflect.read(input, 'message')) &&
+			(context === undefined || (isRecord(context) && isJSONValue(context)))
+		)
+	})
 }

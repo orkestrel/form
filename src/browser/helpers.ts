@@ -1,5 +1,6 @@
 import type { FieldError, FieldRuleName, FieldValue, FormField } from '@src/core'
 import type { FormControl } from './types.js'
+import { attempt } from '@orkestrel/contract'
 import { formatMessage, matchesAnswer, matchesField } from '@src/core'
 import { FormBindingError } from './errors.js'
 
@@ -131,33 +132,34 @@ export function readFormControls(
 	}
 	const first = controls[0]
 	if (first === undefined) return undefined
-	let value: FieldValue | undefined
-	if (field.control === 'list' && first instanceof HTMLSelectElement) {
-		value = Array.from(first.selectedOptions)
-			.filter((option) => !option.matches(':disabled'))
-			.map((option) => option.value)
-	} else if (field.control === 'checkbox') {
-		value =
-			first instanceof HTMLSelectElement
+	const read = attempt(() => {
+		if (field.control === 'list' && first instanceof HTMLSelectElement) {
+			return Array.from(first.selectedOptions)
+				.filter((option) => !option.matches(':disabled'))
+				.map((option) => option.value)
+		} else if (field.control === 'checkbox') {
+			return first instanceof HTMLSelectElement
 				? Array.from(first.selectedOptions, (option) => option.value)
 				: controls
 						.filter((control) => control instanceof HTMLInputElement && control.checked)
 						.map((control) => control.value)
-	} else if (field.control === 'select' && first instanceof HTMLInputElement) {
-		value = controls.find(
-			(control) => control instanceof HTMLInputElement && control.checked,
-		)?.value
-	} else if (field.control === 'confirm' && first instanceof HTMLInputElement) {
-		value = first.checked
-	} else if (field.control === 'number' && first instanceof HTMLInputElement) {
-		if (first.validity.badInput)
-			throw new FormBindingError('CONTROL', 'Enter a number', { field: field.name })
-		value = first.value === '' ? undefined : first.valueAsNumber
-	} else if (field.control === 'file' && first instanceof HTMLInputElement) {
-		value = Array.from(first.files ?? [], (file) => file.name)
-	} else {
-		value = first.value
-	}
+		} else if (field.control === 'select' && first instanceof HTMLInputElement) {
+			return controls.find((control) => control instanceof HTMLInputElement && control.checked)
+				?.value
+		} else if (field.control === 'confirm' && first instanceof HTMLInputElement) {
+			return first.checked
+		} else if (field.control === 'number' && first instanceof HTMLInputElement) {
+			if (first.validity.badInput)
+				throw new FormBindingError('CONTROL', 'Enter a number', { field: field.name })
+			return first.value === '' ? undefined : first.valueAsNumber
+		} else if (field.control === 'file' && first instanceof HTMLInputElement) {
+			return Array.from(first.files ?? [], (file) => file.name)
+		} else {
+			return first.value
+		}
+	})
+	if (!read.success) throw read.error
+	const value = read.value
 	if (!matchesAnswer(value)) return undefined
 	if (value !== undefined && !matchesField(field, value)) {
 		throw new FormBindingError('CONTROL', `Incompatible native answer for "${field.name}"`, {

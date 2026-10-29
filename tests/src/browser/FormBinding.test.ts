@@ -1,3 +1,4 @@
+import { ValidationGate } from '../../setup.js'
 import type { FormSubmission } from '@src/core'
 import { createFormBinding, FormBindingError, isFormBindingError } from '@src/browser'
 import { createForm } from '@src/core'
@@ -655,7 +656,7 @@ describe('native binding', () => {
 		}
 	})
 	it('releases resources and native exclusion after initialization fails during projection', () => {
-		let fails = false
+		const fails = new ValidationGate()
 		const model = createForm({
 			fields: [
 				{ name: 'disabled', control: 'text' },
@@ -664,7 +665,7 @@ describe('native binding', () => {
 					control: 'text',
 					rule: {
 						custom: () => {
-							if (fails) throw new Error('validation failed')
+							if (fails.active) throw new Error('validation failed')
 							return true
 						},
 					},
@@ -673,7 +674,7 @@ describe('native binding', () => {
 		})
 		const element = document.createElement('form')
 		element.innerHTML = '<input name="disabled" disabled><input name="other">'
-		fails = true
+		fails.active = true
 		try {
 			expect(() => createFormBinding(element, model)).toThrow(FormBindingError)
 			expect(model.emitter.count()).toBe(0)
@@ -681,7 +682,7 @@ describe('native binding', () => {
 			expect(element.noValidate).toBe(false)
 			expect(element.querySelector('[data-form-feedback]')).toBeNull()
 		} finally {
-			fails = false
+			fails.active = false
 			model.destroy()
 		}
 	})

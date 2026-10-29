@@ -1,3 +1,4 @@
+import { attempt } from '@orkestrel/contract'
 import type { FormSchema } from '@src/core'
 import {
 	STRING_LIMIT,
@@ -118,16 +119,18 @@ describe('structural guards', () => {
 
 	it('strictly refuses every hostile corpus member without throwing', () => {
 		for (const [index, value] of createHostileValues().entries()) {
-			let fieldAccepted: boolean | undefined
-			let schemaAccepted: boolean | undefined
-			expect(() => {
-				fieldAccepted = isFormField(value)
-			}, `field guard hostile value ${index}`).not.toThrow()
-			expect(fieldAccepted, `field guard hostile value ${index}`).toBe(false)
-			expect(() => {
-				schemaAccepted = isFormSchema(value)
-			}, `schema guard hostile value ${index}`).not.toThrow()
-			expect(schemaAccepted, `schema guard hostile value ${index}`).toBe(false)
+			const fieldAccepted = attempt(() => isFormField(value))
+			expect(fieldAccepted.success, `field guard hostile value ${index}`).toBe(true)
+			expect(
+				fieldAccepted.success ? fieldAccepted.value : undefined,
+				`field guard hostile value ${index}`,
+			).toBe(false)
+			const schemaAccepted = attempt(() => isFormSchema(value))
+			expect(schemaAccepted.success, `schema guard hostile value ${index}`).toBe(true)
+			expect(
+				schemaAccepted.success ? schemaAccepted.value : undefined,
+				`schema guard hostile value ${index}`,
+			).toBe(false)
 		}
 	})
 

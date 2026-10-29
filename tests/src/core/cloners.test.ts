@@ -1,3 +1,4 @@
+import { createAccessorMeta } from '../../setup.js'
 import type { FieldChoice, FormField, FormSchema } from '@src/core'
 import {
 	cloneChoices,
@@ -101,11 +102,7 @@ describe('form cloners', () => {
 		const field: FormField = {
 			control: 'text',
 			name: 'email',
-			meta: {
-				get icon() {
-					return 'mail'
-				},
-			},
+			meta: createAccessorMeta(),
 		}
 
 		const cloned = attempt(() => cloneFormField(field))

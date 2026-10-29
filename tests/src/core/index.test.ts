@@ -1,3 +1,5 @@
+import { ENTRY_SCHEMA as SCHEMA } from '../../setup.js'
+import { validateAddress } from '../../setup.js'
 import type {
 	CheckboxField,
 	FieldRuleName,
@@ -19,81 +21,6 @@ import { describe, expect, it } from 'vitest'
 // This schema is the contract's compile-time proof: it declares every FormField variant, and
 // `npm run check` reads this file. A password field carries no default by contract, so seeding
 // one here would fail that check.
-const SCHEMA: FormSchema = {
-	name: 'signup',
-	label: 'Sign up',
-	help: 'Every control the package models, in one schema.',
-	groups: [
-		{ name: 'account', label: 'Account' },
-		{ name: 'profile', label: 'Profile', help: 'Tell people who you are.' },
-	],
-	fields: [
-		{
-			control: 'text',
-			name: 'email',
-			label: 'Email',
-			group: 'account',
-			placeholder: 'ada@example.com',
-			rule: { required: true, email: true },
-			meta: { column: 1, tags: ['contact'] },
-		},
-		{ control: 'editor', name: 'bio', label: 'Bio', group: 'profile', rule: { maximum: 240 } },
-		{
-			control: 'password',
-			name: 'secret',
-			label: 'Password',
-			group: 'account',
-			mask: '*',
-			rule: {
-				required: true,
-				minimum: 8,
-				custom: (value, values) => (value === values.repeat ? true : 'Both passwords must match'),
-			},
-		},
-		{
-			control: 'number',
-			name: 'age',
-			label: 'Age',
-			group: 'profile',
-			rule: { integer: true, minimum: 18, step: 1 },
-		},
-		{ control: 'date', name: 'born', label: 'Date of birth', rule: { maximum: '2008-01-01' } },
-		{ control: 'time', name: 'reminder', label: 'Reminder', default: '09:00' },
-		{ control: 'datetime', name: 'starts', label: 'Starts', default: '2026-01-01T09:00' },
-		{ control: 'color', name: 'accent', label: 'Accent', default: '#336699' },
-		{ control: 'confirm', name: 'terms', label: 'I accept the terms', rule: { required: true } },
-		{
-			control: 'select',
-			name: 'payment',
-			label: 'Payment',
-			open: true,
-			choices: [
-				{ value: 'card', label: 'Card' },
-				{ value: 'transfer', label: 'Transfer', help: 'Two working days.', disabled: true },
-			],
-		},
-		{
-			control: 'checkbox',
-			name: 'topics',
-			label: 'Topics',
-			default: ['releases'],
-			choices: [
-				{ value: 'releases', label: 'Releases' },
-				{ value: 'events', label: 'Events' },
-			],
-			rule: { maximum: 2 },
-		},
-		{
-			control: 'file',
-			name: 'avatar',
-			label: 'Avatar',
-			accept: ['image/png', '.jpg'],
-			multiple: true,
-			hidden: true,
-			locked: true,
-		},
-	],
-}
 
 describe('src core entry', () => {
 	it('publishes the exact engine runtime surface', () => {
@@ -136,6 +63,8 @@ describe('src core entry', () => {
 			'evaluateForm',
 			'extractChanges',
 			'extractGroups',
+			'failsFieldBound',
+			'failsTextRule',
 			'formatMessage',
 			'freezeEntry',
 			'isFieldChoice',
@@ -188,8 +117,7 @@ describe('src core entry', () => {
 	})
 
 	it('runs a custom rule on a field nobody has answered', () => {
-		const address: FieldValidator = (value, values) =>
-			values.subscribe === true && value === undefined ? 'Tell us where to write' : true
+		const address: FieldValidator = validateAddress
 
 		expect(address(undefined, { subscribe: true })).toBe('Tell us where to write')
 		expect(address(undefined, { subscribe: false })).toBe(true)
