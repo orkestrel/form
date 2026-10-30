@@ -54,7 +54,7 @@ optional member and `plus` introducing its call-signature members, and a type al
 literal with a union's arms escaped as `\|`. An extended interface's name comes before `plus`,
 with the members it adds after.
 
-| API             | Kind      | Shape                                                                                                                                                                                         | Summary                                                                                       |
+| Name            | Kind      | Shape                                                                                                                                                                                         | Summary                                                                                       |
 | --------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `FormSchema`    | interface | `{ name?, label?, help?, groups?, fields }`                                                                                                                                                   | Describes everything a form asks.                                                             |
 | `FormGroup`     | interface | `{ name, label, help? }`                                                                                                                                                                      | Represents a named section of a form.                                                         |
@@ -84,7 +84,7 @@ A `Shape` cell holds an interface's data members as bare names in braces, `?` ma
 optional member and `plus` introducing its call-signature members, and a type alias's own type
 literal with a union's arms escaped as `\|`.
 
-| API                 | Kind      | Shape                                                                                                | Summary                                                    |
+| Name                | Kind      | Shape                                                                                                | Summary                                                    |
 | ------------------- | --------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `FieldValue`        | type      | `string \| number \| boolean \| readonly string[]`                                                   | Represents every value a field can hold.                   |
 | `FormValues`        | type      | `Readonly<Record<string, FieldValue>>`                                                               | Represents a form's answers, keyed by field name.          |
@@ -104,7 +104,7 @@ literal with a union's arms escaped as `\|`. A function row's `Shape` cell holds
 and a guard row's the type it narrows to. A class row's `Shape` cell holds the interface it
 implements, or its constructor signature where it implements none.
 
-| API                     | Kind      | Shape                                                                                                                                                                                                          | Summary                                                                                                            |
+| Name                    | Kind      | Shape                                                                                                                                                                                                          | Summary                                                                                                            |
 | ----------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `Form`                  | class     | `FormInterface`                                                                                                                                                                                                | Implements `FormInterface` exactly, over an owned schema, the answers given against it, and the errors they carry. |
 | `FormInterface`         | interface | `{ emitter, schema, values, baseline, pending, errors, touched, disabled, status, valid, dirty, answer } plus field, fill, touch, invalidate, disable, enable, submit, prepare, accept, abort, clear, destroy` | Declares the contract a form exposes: the state it holds and the calls that move it.                               |
@@ -136,7 +136,7 @@ control; `COLOR_PATTERN`, `DATE_PATTERN`, `TIME_PATTERN`, and `DATETIME_PATTERN`
 
 A `Shape` cell holds the constant's declared type.
 
-| API                    | Kind  | Shape                                               | Summary                                                                                                                         |
+| Name                   | Kind  | Shape                                               | Summary                                                                                                                         |
 | ---------------------- | ----- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `FIELD_CONTROLS`       | const | `readonly FieldControl[]`                           | Lists every field control, in the order declared by the public contract.                                                        |
 | `FIELD_BASE_KEYS`      | const | `readonly string[]`                                 | Lists the members every field declares, whatever its control.                                                                   |
@@ -170,7 +170,7 @@ also refuses a number that is not finite, so `NaN` and `Infinity` are not field 
 
 In a guard table a `Shape` cell holds the type the guard narrows to.
 
-| API              | Kind     | Shape          | Summary                                                                    |
+| Name             | Kind     | Shape          | Summary                                                                    |
 | ---------------- | -------- | -------------- | -------------------------------------------------------------------------- |
 | `isFieldControl` | function | `FieldControl` | Determines whether an unknown value is a declared field control.           |
 | `isFormStatus`   | function | `FormStatus`   | Determines whether an unknown value is a form lifecycle status.            |
@@ -189,7 +189,7 @@ The pure leaves the form composes: the prototype-safe record write, `createField
 failure builder, the control shape test, the evaluation engine, the derivations, and the wire
 projection.
 
-| API                | Kind     | Summary                                                                         |
+| Name               | Kind     | Summary                                                                         |
 | ------------------ | -------- | ------------------------------------------------------------------------------- |
 | `defineEntry`      | function | Writes one own enumerable data property onto a record.                          |
 | `freezeEntry`      | function | Writes one own enumerable data property that cannot be rewritten or removed.    |
@@ -226,7 +226,7 @@ Owned frozen snapshots. The form takes one of the schema at construction, so a l
 schema the caller passed changes nothing inside the form, and no list the form hands back is a live
 internal reference.
 
-| API               | Kind     | Summary                                                 |
+| Name              | Kind     | Summary                                                 |
 | ----------------- | -------- | ------------------------------------------------------- |
 | `cloneValue`      | function | Clones one form value into an owned frozen snapshot.    |
 | `cloneChoices`    | function | Clones a field's choices into an owned frozen snapshot. |
@@ -238,7 +238,7 @@ internal reference.
 The wire boundary. Each returns `undefined` on refusal rather than throwing, and each returns an
 owned value rather than the caller's.
 
-| API           | Kind     | Summary                                                                 |
+| Name          | Kind     | Summary                                                                 |
 | ------------- | -------- | ----------------------------------------------------------------------- |
 | `parseForm`   | function | Parses unknown wire data into an owned, semantically sound form schema. |
 | `parseValue`  | function | Parses one answer against its field control.                            |
@@ -248,7 +248,7 @@ owned value rather than the caller's.
 
 The browser entry publishes the controlled native form and its host readers.
 
-| Symbol                 | Kind      | Shape                                                                   | Summary                                                                                 |
+| Name                   | Kind      | Shape                                                                   | Summary                                                                                 |
 | ---------------------- | --------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `FormControl`          | type      | `HTMLInputElement` or `HTMLSelectElement` or `HTMLTextAreaElement`      | Represents a native answer control admitted by the binding.                             |
 | `FormBindingErrorCode` | type      | `'CONTROL'` or `'PENDING'` or `'DOM'`                                   | Names a native binding refusal.                                                         |
