@@ -49,11 +49,6 @@ The document itself — what a form asks, in the order it asks it. All data, no 
 control's own interface adds its members to `FieldBase`, and the control values themselves are
 worked through in [Controls](#controls).
 
-A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an
-optional member and `plus` introducing its call-signature members, and a type alias's own type
-literal with a union's arms escaped as `\|`. An extended interface's name comes before `plus`,
-with the members it adds after.
-
 | Name            | Kind      | Signature                                                                                                                                                                                     | Summary                                                                                       |
 | --------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `FormSchema`    | interface | `{ name?, label?, help?, groups?, fields }`                                                                                                                                                   | Describes everything a form asks.                                                             |
@@ -80,10 +75,6 @@ with the members it adds after.
 
 What a form holds, what its answers must satisfy, and how a failure reports itself.
 
-A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an
-optional member and `plus` introducing its call-signature members, and a type alias's own type
-literal with a union's arms escaped as `\|`.
-
 | Name                | Kind      | Signature                                                                                            | Summary                                                    |
 | ------------------- | --------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `FieldValue`        | type      | `string \| number \| boolean \| readonly string[]`                                                   | Represents every value a field can hold.                   |
@@ -97,12 +88,6 @@ literal with a union's arms escaped as `\|`.
 ### The form
 
 The entity, its factory, its contract, and the error it raises.
-
-A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an
-optional member and `plus` introducing its call-signature members, and a type alias's own type
-literal with a union's arms escaped as `\|`. A function row's `Shape` cell holds its signature,
-and a guard row's the type it narrows to. A class row's `Shape` cell holds the interface it
-implements, or its constructor signature where it implements none.
 
 | Name                    | Kind      | Signature                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Summary                                                                                                            |
 | ----------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
@@ -119,8 +104,8 @@ implements, or its constructor signature where it implements none.
 | `FormErrorCode`         | type      | `'SCHEMA' \| 'FIELD' \| 'CONTROL' \| 'SETTLED' \| 'ABANDONED' \| 'PENDING'`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Names the machine-readable code a form error carries.                                                              |
 | `isFormError`           | function  | `(input: unknown) => input is FormError`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Determines whether an unknown value is a form error.                                                               |
 
-`FormInterface`'s readonly data members are the names in its `Shape` cell before `plus`, and they
-stay here rather than in `## Methods`; the call-signature members after `plus` are documented under
+`FormInterface`'s readonly data members are the names its `Signature` cell lists without
+parentheses, and they stay here rather than in `## Methods`; the members it lists with parentheses are documented under
 [Methods](#methods).
 
 ### Constants
@@ -133,8 +118,6 @@ control; `COLOR_PATTERN`, `DATE_PATTERN`, `TIME_PATTERN`, and `DATETIME_PATTERN`
 `color`, `date`, `time`, and `datetime` value must have. Each budget's row names its ceiling.
 [Budgets](#budgets) then works each ceiling through beside the unit it counts, and
 [Patterns and where trust lives](#patterns-and-where-trust-lives) does the same for `PATTERN_LIMIT`.
-
-A `Shape` cell holds the constant's declared type.
 
 | Name                   | Kind  | Signature                                           | Summary                                                                                                                         |
 | ---------------------- | ----- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -162,8 +145,6 @@ Total `is*` guards over unknown input. None throws, none coerces, and each retur
 anything off-shape — including an unexpected prototype, a symbol key, or a cyclic value. `isFieldValue`
 also refuses a number that is not finite, so `NaN` and `Infinity` are not field values, and
 `isFormSchema` reads structure alone: domain soundness is `auditSchema`'s question.
-
-In a guard table a `Shape` cell holds the type the guard narrows to.
 
 | Name             | Kind     | Signature                                   | Summary                                                                    |
 | ---------------- | -------- | ------------------------------------------- | -------------------------------------------------------------------------- |
@@ -1929,8 +1910,8 @@ matchesValues({ topics: ['a'] }, { topics: ['a'] }) // true
 ## Methods
 
 The public methods of `FormInterface`, which the `Form` class implements exactly and adds nothing
-to. Its readonly data members stay in the preceding `## Surface` rows, in the `Shape` cell before
-`plus`, and are not repeated here.
+to. Its readonly data members stay in the preceding `## Surface` rows, in the `Signature` cell, and
+are not repeated here.
 
 A record of answers and a list of names are checked in full before anything moves, so a refused call
 changes nothing.
