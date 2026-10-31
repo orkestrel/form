@@ -8,16 +8,11 @@ import type {
 	FormValues,
 } from '@src/core'
 import {
-	CHOICE_LIMIT,
 	FIELD_CONTROLS,
 	FIELD_LIMIT,
 	Form,
 	GROUP_LIMIT,
 	LIST_LIMIT,
-	NAME_LIMIT,
-	NODE_LIMIT,
-	STRING_LIMIT,
-	TEXT_LIMIT,
 	appliesRule,
 	auditSchema,
 	computeDefaults,
@@ -42,7 +37,14 @@ import {
 	cloneFormField,
 	isFormField,
 } from '@src/core'
-import { attempt } from '@orkestrel/contract'
+import {
+	attempt,
+	CHOICE_LIMIT,
+	NAME_LIMIT,
+	NODE_LIMIT,
+	STRING_LIMIT,
+	TEXT_LIMIT,
+} from '@orkestrel/contract'
 import { roundTripJSON } from '@orkestrel/test'
 import { PATTERN_LIMIT } from '@src/core'
 import { describe, expect, it } from 'vitest'

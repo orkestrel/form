@@ -1,6 +1,5 @@
 import {
 	ALPHANUMERIC_PATTERN,
-	CHOICE_LIMIT,
 	COLOR_PATTERN,
 	DATE_PATTERN,
 	DATETIME_PATTERN,
@@ -13,12 +12,8 @@ import {
 	GROUP_LIMIT,
 	INTEGER_PATTERN,
 	LIST_LIMIT,
-	NAME_LIMIT,
-	NODE_LIMIT,
 	PATTERN_LIMIT,
 	RULE_MESSAGES,
-	STRING_LIMIT,
-	TEXT_LIMIT,
 	TIME_PATTERN,
 	URL_PATTERN,
 } from '@src/core'
@@ -118,27 +113,13 @@ describe('core constants', () => {
 		]).toStrictEqual([true, true, true, true, true, true, true, true])
 	})
 
-	it('fixes every cardinality and length budget at an exact whole number', () => {
+	it('fixes every cardinality budget at an exact whole number', () => {
 		expect(FIELD_LIMIT).toBe(512)
 		expect(GROUP_LIMIT).toBe(64)
-		expect(CHOICE_LIMIT).toBe(1024)
 		expect(LIST_LIMIT).toBe(1024)
-		expect(NAME_LIMIT).toBe(128)
-		expect(STRING_LIMIT).toBe(65536)
-		expect(TEXT_LIMIT).toBe(1048576)
-		expect(NODE_LIMIT).toBe(16384)
 
-		const budgets = [
-			FIELD_LIMIT,
-			GROUP_LIMIT,
-			CHOICE_LIMIT,
-			LIST_LIMIT,
-			NAME_LIMIT,
-			STRING_LIMIT,
-			TEXT_LIMIT,
-			NODE_LIMIT,
-		]
+		const budgets = [FIELD_LIMIT, GROUP_LIMIT, LIST_LIMIT]
 
-		expect(budgets.filter((budget) => Number.isSafeInteger(budget) && budget > 0)).toHaveLength(8)
+		expect(budgets.filter((budget) => Number.isSafeInteger(budget) && budget > 0)).toHaveLength(3)
 	})
 })

@@ -5,12 +5,11 @@ import {
 	createAccessorMeta,
 } from '../../setup.js'
 import type { FieldRule, FormField, FormSchema, FormValues } from '@src/core'
-import { attempt, GUARD_DEPTH_LIMIT } from '@orkestrel/contract'
+import { attempt, GUARD_DEPTH_LIMIT, STRING_LIMIT } from '@orkestrel/contract'
 import { createHostileValues, roundTripJSON } from '@orkestrel/test'
 import {
 	Form,
 	LIST_LIMIT,
-	STRING_LIMIT,
 	auditSchema,
 	isFormError,
 	isFormSchema,

@@ -2,15 +2,13 @@ import { readList, measureLongest, countText, countLeaves } from './setup.js'
 import {
 	FIELD_CONTROLS,
 	RULE_MESSAGES,
-	STRING_LIMIT,
-	TEXT_LIMIT,
 	appliesRule,
 	auditSchema,
 	evaluateField,
 	matchesField,
 	serializeForm,
 } from '@src/core'
-import { isArray, isString } from '@orkestrel/contract'
+import { isArray, isString, STRING_LIMIT, TEXT_LIMIT } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
 import {
 	ANSWER_CASES,

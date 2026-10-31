@@ -10,8 +10,8 @@ import type {
 	FormValues,
 	TextField,
 } from '@src/core'
-import { Form, STRING_LIMIT, isFormError, isFormSchema } from '@src/core'
-import { attempt } from '@orkestrel/contract'
+import { Form, isFormError, isFormSchema } from '@src/core'
+import { attempt, STRING_LIMIT } from '@orkestrel/contract'
 import { createRecorder, requireValue, waitForDelay } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {

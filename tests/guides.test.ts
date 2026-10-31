@@ -57,7 +57,7 @@ await new GuideCommand({
 	reader: readInventory,
 	runner: createVitest,
 }).execute(async ({ files, report, rows }) => {
-	const { isRecord, parseJSON } = await import('@orkestrel/contract')
+	const { isRecord, parseJSON, STRING_LIMIT } = await import('@orkestrel/contract')
 	const {
 		computeSymbolKey,
 		createGuide,
@@ -105,7 +105,6 @@ await new GuideCommand({
 		parseValues,
 		PATTERN_LIMIT,
 		serializeForm,
-		STRING_LIMIT,
 	} = barrel
 	const { describe, expect, it } = await import('vitest')
 	const manifest = parseJSON(requireValue(files['package.json'], 'Missing inventory: package.json'))

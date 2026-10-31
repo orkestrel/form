@@ -1,5 +1,13 @@
 import type { JSONValue } from '@orkestrel/contract'
-import { attempt, isArray, isRecord, isString } from '@orkestrel/contract'
+import {
+	attempt,
+	isArray,
+	isRecord,
+	isString,
+	NODE_LIMIT,
+	STRING_LIMIT,
+	TEXT_LIMIT,
+} from '@orkestrel/contract'
 import type {
 	FieldControl,
 	FieldError,
@@ -13,14 +21,7 @@ import type {
 	FormSchema,
 	FormValues,
 } from '@src/core'
-import {
-	EMAIL_PATTERN,
-	isFormError,
-	serializeForm,
-	NODE_LIMIT,
-	STRING_LIMIT,
-	TEXT_LIMIT,
-} from '@src/core'
+import { EMAIL_PATTERN, isFormError, serializeForm } from '@src/core'
 
 export interface AnswerCase {
 	readonly answer: boolean

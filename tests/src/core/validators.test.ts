@@ -1,7 +1,6 @@
-import { attempt } from '@orkestrel/contract'
+import { attempt, STRING_LIMIT } from '@orkestrel/contract'
 import type { FormSchema } from '@src/core'
 import {
-	STRING_LIMIT,
 	isFieldChoice,
 	isFieldControl,
 	isFieldError,

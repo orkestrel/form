@@ -6,9 +6,9 @@ import {
 	isString,
 	parseNumber,
 	readArrayEntries,
+	STRING_LIMIT,
 } from '@orkestrel/contract'
 import { cloneValue } from './cloners.js'
-import { STRING_LIMIT } from './constants.js'
 import { auditSchema, defineEntry, freezeEntry, matchesField, serializeForm } from './helpers.js'
 import { isFormSchema } from './validators.js'
 

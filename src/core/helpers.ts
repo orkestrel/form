@@ -13,6 +13,7 @@ import type {
 } from './types.js'
 import {
 	attempt,
+	CHOICE_LIMIT,
 	cloneJSONRecord,
 	isArray,
 	isBoolean,
@@ -21,12 +22,15 @@ import {
 	isContractError,
 	isRecord,
 	isString,
+	NAME_LIMIT,
+	NODE_LIMIT,
 	readArrayEntries,
+	STRING_LIMIT,
+	TEXT_LIMIT,
 } from '@orkestrel/contract'
 import { cloneValue } from './cloners.js'
 import {
 	ALPHANUMERIC_PATTERN,
-	CHOICE_LIMIT,
 	COLOR_PATTERN,
 	DATE_PATTERN,
 	DATETIME_PATTERN,
@@ -36,12 +40,8 @@ import {
 	GROUP_LIMIT,
 	INTEGER_PATTERN,
 	LIST_LIMIT,
-	NAME_LIMIT,
-	NODE_LIMIT,
 	PATTERN_LIMIT,
 	RULE_MESSAGES,
-	STRING_LIMIT,
-	TEXT_LIMIT,
 	TIME_PATTERN,
 	URL_PATTERN,
 } from './constants.js'

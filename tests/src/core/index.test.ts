@@ -26,7 +26,6 @@ describe('src core entry', () => {
 	it('publishes the exact engine runtime surface', () => {
 		expect(Object.keys(entry).sort()).toStrictEqual([
 			'ALPHANUMERIC_PATTERN',
-			'CHOICE_LIMIT',
 			'COLOR_PATTERN',
 			'DATETIME_PATTERN',
 			'DATE_PATTERN',
@@ -41,12 +40,8 @@ describe('src core entry', () => {
 			'GROUP_LIMIT',
 			'INTEGER_PATTERN',
 			'LIST_LIMIT',
-			'NAME_LIMIT',
-			'NODE_LIMIT',
 			'PATTERN_LIMIT',
 			'RULE_MESSAGES',
-			'STRING_LIMIT',
-			'TEXT_LIMIT',
 			'TIME_PATTERN',
 			'URL_PATTERN',
 			'appliesRule',

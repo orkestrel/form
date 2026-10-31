@@ -106,20 +106,5 @@ export const FIELD_LIMIT = 512
 /** Caps the number of groups one schema may declare, at 64. */
 export const GROUP_LIMIT = 64
 
-/** Caps the number of choices one `select` or `checkbox` field may offer, at 1024. */
-export const CHOICE_LIMIT = 1024
-
 /** Caps the number of entries one list-valued answer may hold, at 1024. */
 export const LIST_LIMIT = 1024
-
-/** Caps the length, in UTF-16 code units, of a schema, group, or field name, at 128. */
-export const NAME_LIMIT = 128
-
-/** Caps the length, in UTF-16 code units, of any single retained string, at 65536. */
-export const STRING_LIMIT = 65536
-
-/** Caps the total length, in UTF-16 code units, of every string one schema retains, at 1048576. */
-export const TEXT_LIMIT = 1048576
-
-/** Caps the total number of records, arrays, and leaves one schema retains, at 16384. */
-export const NODE_LIMIT = 16384
