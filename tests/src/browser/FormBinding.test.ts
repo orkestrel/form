@@ -854,6 +854,29 @@ describe('native binding', () => {
 		}
 	})
 
+	it('calls the host hook once for a refused field that fails several rules', () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ name: 'contact', control: 'text', rule: { email: true, minimum: 10 } }] },
+			'<form><button>Save</button></form>',
+		)
+		fixture.binding.destroy()
+		const reveals = createRecorder<readonly [string]>()
+		const binding = createFormBinding(fixture.element, fixture.document, {
+			reveal: reveals.handler,
+		})
+		try {
+			// With no mounted control, native validity passes and preparation reports both rules.
+			fixture.document.fill('contact', 'ab')
+			fixture.element.requestSubmit()
+			expect(fixture.document.errors.map((error) => error.field)).toEqual(['contact', 'contact'])
+			expect(fixture.document.pending).toBeUndefined()
+			expect(reveals.calls).toEqual([['contact']])
+		} finally {
+			binding.destroy()
+			fixture.destroy()
+		}
+	})
+
 	it('reports a throwing host hook and focuses nothing', () => {
 		const fixture = createNativeFormFixture(
 			{ fields: [{ name: 'hidden', control: 'text', rule: { required: true } }] },

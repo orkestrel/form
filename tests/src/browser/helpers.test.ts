@@ -38,6 +38,16 @@ describe('native readers', () => {
 		const text = document.createElement('input')
 		text.value = '1.50'
 		expect(matchesNativeNumber(text, 1.5)).toBe(false)
+		const date = document.createElement('input')
+		date.type = 'date'
+		date.value = '1970-01-02'
+		expect(date.valueAsNumber).toBe(86_400_000)
+		expect(matchesNativeNumber(date, date.valueAsNumber)).toBe(false)
+		const time = document.createElement('input')
+		time.type = 'time'
+		time.value = '01:00'
+		expect(time.valueAsNumber).toBe(3_600_000)
+		expect(matchesNativeNumber(time, time.valueAsNumber)).toBe(false)
 	})
 
 	it('matches native failures by rule and field while retaining independent native errors', () => {
