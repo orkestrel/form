@@ -232,6 +232,23 @@ describe('Form state', () => {
 		expect(form.dirty).toBe(false)
 	})
 
+	it('reads an empty list against an absent baseline as clean and a nonempty list as dirty', () => {
+		const form = new Form({ fields: [{ control: 'list', name: 'to' }] })
+		const fills = createRecorder<FormEventMap['fill']>()
+		form.emitter.on('fill', fills.handler)
+
+		form.fill('to', [])
+
+		expect(form.baseline).toStrictEqual({})
+		expect(form.values).toStrictEqual({ to: [] })
+		expect(fills.calls).toStrictEqual([['to', []]])
+		expect(form.dirty).toBe(false)
+
+		form.fill('to', ['ada@example.com'])
+
+		expect(form.dirty).toBe(true)
+	})
+
 	it('reads an equal but distinct list answer as unmoved', () => {
 		const form = new Form(SCHEMA)
 		const fills = createRecorder<FormEventMap['fill']>()

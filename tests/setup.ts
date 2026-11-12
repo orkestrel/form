@@ -57,6 +57,12 @@ export const CHANGED_CASES: readonly ChangedCase[] = [
 	{ current: {}, opened: { answer: 'old' }, names: ['answer'] },
 	{ current: { answer: 'new' }, opened: {}, names: ['answer'] },
 	{ current: { answer: ['one', 'two'] }, opened: { answer: ['one', 'three'] }, names: ['answer'] },
+	{ current: { answer: [] }, opened: {}, names: [] },
+	{ current: {}, opened: { answer: [] }, names: [] },
+	{ current: { answer: ['one'] }, opened: {}, names: ['answer'] },
+	{ current: {}, opened: { answer: ['one'] }, names: ['answer'] },
+	{ current: { answer: [] }, opened: { answer: '' }, names: ['answer'] },
+	{ current: { answer: '' }, opened: {}, names: ['answer'] },
 ]
 
 export const STRING_FIELDS: readonly FormField[] = [

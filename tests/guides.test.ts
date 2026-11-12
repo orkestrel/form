@@ -674,6 +674,12 @@ await new GuideCommand({
 			expect(form.dirty).toBe(false)
 		})
 
+		it('matches an empty list against an absent baseline and nothing else', () => {
+			expect(Array.from(extractChanges({ to: [] }, {}))).toStrictEqual([])
+			expect(Array.from(extractChanges({ to: ['ada@example.com'] }, {}))).toStrictEqual(['to'])
+			expect(Array.from(extractChanges({ subject: '' }, {}))).toStrictEqual(['subject'])
+		})
+
 		it('resolves a parked answer from another task', async () => {
 			const form = createForm({
 				fields: [{ control: 'text', name: 'name', rule: { required: true } }],

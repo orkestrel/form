@@ -426,8 +426,11 @@ export function matchesValue(a: FieldValue, b: FieldValue): boolean {
  *
  * @remarks
  * Presence is compared in both directions before present values are compared through
- * {@link matchesValue}. The returned set is a new snapshot, exposed as readonly because later
- * changes to either input never alter its membership.
+ * {@link matchesValue}, except that an empty list and absence are equal in either direction, so a
+ * list a binding reads as empty never counts as a change against a baseline that holds no answer.
+ * Every other present value, the empty string included, differs from absence. The returned set is
+ * a new snapshot, exposed as readonly because later changes to either input never alter its
+ * membership.
  *
  * @param current - The values the form holds.
  * @param opened - The values held when the form opened.
@@ -442,7 +445,8 @@ export function extractChanges(current: FormValues, opened: FormValues): Readonl
 		const hasOpened = Object.hasOwn(opened, name)
 
 		if (hasCurrent !== hasOpened) {
-			changed.add(name)
+			const present = hasCurrent ? current[name] : opened[name]
+			if (!isArray(present) || present.length > 0) changed.add(name)
 			continue
 		}
 

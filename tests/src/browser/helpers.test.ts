@@ -1,6 +1,7 @@
 import {
 	FormBindingError,
 	matchesFormControls,
+	matchesNativeNumber,
 	readNativeMessages,
 	readFormControls,
 } from '@src/browser'
@@ -14,6 +15,31 @@ import {
 } from '../../setupBrowser.js'
 
 describe('native readers', () => {
+	it('matches numeric text only when its parsed number equals the answer', () => {
+		const input = document.createElement('input')
+		input.type = 'number'
+		input.value = '1.50'
+		expect(matchesNativeNumber(input, 1.5)).toBe(true)
+		expect(matchesNativeNumber(input, 1.25)).toBe(false)
+		expect(matchesNativeNumber(input, '1.50')).toBe(false)
+		expect(matchesNativeNumber(input, undefined)).toBe(false)
+		input.value = '1e0'
+		expect(matchesNativeNumber(input, 1)).toBe(true)
+		input.value = '-0'
+		expect(matchesNativeNumber(input, 0)).toBe(true)
+		input.value = ''
+		expect(matchesNativeNumber(input, 0)).toBe(false)
+		expect(matchesNativeNumber(input, Number.NaN)).toBe(false)
+		const range = document.createElement('input')
+		range.type = 'range'
+		range.value = '40'
+		expect(matchesNativeNumber(range, 40)).toBe(true)
+		expect(matchesNativeNumber(range, 140)).toBe(false)
+		const text = document.createElement('input')
+		text.value = '1.50'
+		expect(matchesNativeNumber(text, 1.5)).toBe(false)
+	})
+
 	it('matches native failures by rule and field while retaining independent native errors', () => {
 		const input = document.createElement('input')
 		input.name = 'answer'

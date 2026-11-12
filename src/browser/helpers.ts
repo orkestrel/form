@@ -1,6 +1,6 @@
 import type { FieldError, FieldRuleName, FieldValue, FormField } from '@src/core'
 import type { FormControl } from './types.js'
-import { attempt } from '@orkestrel/contract'
+import { attempt, isFiniteNumber } from '@orkestrel/contract'
 import { formatMessage, matchesAnswer, matchesField } from '@src/core'
 import { FormBindingError } from './errors.js'
 
@@ -56,6 +56,34 @@ export function matchesFormControls(field: FormField, controls: readonly FormCon
 				return control.type === field.control
 		}
 	})
+}
+
+/**
+ * Checks whether a numeric control's own text already parses to the document's number.
+ * @param control - The native control to inspect.
+ * @param value - The document's answer for the control's field.
+ * @returns True if a number or range input holds nonblank text whose parsed number equals the answer; false otherwise.
+ * @remarks
+ * The binding keeps such text instead of rewriting it, so a typed `1.50` survives projection of
+ * `1.5`. The input's value is the platform's locale-independent number text, and the comparison
+ * uses the document's own equality, so `-0` text matches a `0` answer. Blank text, which bad
+ * input also reports, never matches.
+ * @example
+ * ```ts
+ * const input = document.createElement('input')
+ * input.type = 'number'
+ * input.value = '1.50'
+ * matchesNativeNumber(input, 1.5) // true
+ * ```
+ */
+export function matchesNativeNumber(control: FormControl, value: FieldValue | undefined): boolean {
+	return (
+		control instanceof HTMLInputElement &&
+		(control.type === 'number' || control.type === 'range') &&
+		isFiniteNumber(value) &&
+		control.value !== '' &&
+		control.valueAsNumber === value
+	)
 }
 
 /**

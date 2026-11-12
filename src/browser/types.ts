@@ -22,8 +22,16 @@ export interface FormBindingOptions {
 	readonly summary?: HTMLElement
 	/** Maps native controls to feedback and summary focus targets whose departure touches the field. */
 	readonly presentations?: ReadonlyMap<FormControl, HTMLElement>
-	/** Defers blur touch until a same-form button's primary pointer press finishes. Default: false. */
+	/**
+	 * Defers blur touch until a same-form button's primary pointer press finishes. A press whose
+	 * click was prevented keeps the touch pending until a reset or the next focus change. Default: false.
+	 */
 	readonly defer?: boolean
+	/**
+	 * Brings a refused field into the document before submission focuses it. The binding calls it
+	 * with the field name when the field has no focusable control, then rediscovers controls.
+	 */
+	readonly reveal?: (name: string) => void
 	readonly on?: EmitterHooks<FormBindingEventMap>
 	readonly error?: EmitterErrorHandler
 }

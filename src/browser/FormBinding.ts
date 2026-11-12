@@ -11,7 +11,12 @@ import type {
 import { Emitter } from '@orkestrel/emitter'
 import { matchesValue } from '@src/core'
 import { FormBindingError, isFormBindingError } from './errors.js'
-import { matchesFormControls, readFormControls, readNativeMessages } from './helpers.js'
+import {
+	matchesFormControls,
+	matchesNativeNumber,
+	readFormControls,
+	readNativeMessages,
+} from './helpers.js'
 import { isFormControl } from './validators.js'
 
 /** Implements a controlled native form over a borrowed document. */
@@ -53,6 +58,7 @@ export class FormBinding implements FormBindingInterface {
 	#submitting = false
 	#pointer: number | undefined
 	#release: ReturnType<typeof setTimeout> | undefined
+	#click: MouseEvent | undefined
 
 	/**
 	 * Binds existing controls to the supplied document's answers.
@@ -90,6 +96,7 @@ export class FormBinding implements FormBindingInterface {
 					signal,
 					capture: true,
 				})
+				element.ownerDocument.addEventListener('focusin', () => this.#releaseHeld(), { signal })
 				element.ownerDocument.defaultView?.addEventListener('blur', () => this.#finishPress(), {
 					signal,
 				})
@@ -584,6 +591,7 @@ export class FormBinding implements FormBindingInterface {
 			})
 			return changes.some(Boolean)
 		}
+		if (matchesNativeNumber(control, value)) return false
 		const text = value === undefined ? '' : String(value)
 		if (
 			control.value === text &&
@@ -836,6 +844,12 @@ export class FormBinding implements FormBindingInterface {
 	}
 
 	#onClick(event: MouseEvent): void {
+		if (this.#pointer !== undefined) this.#click = event
+		else if (this.#held()) {
+			// A click that reaches the binding after its press settled decides the held touch.
+			this.#click = event
+			this.#release = setTimeout(() => this.#settlePress(false), 0)
+		}
 		const control = event.target
 		if (control instanceof Element) {
 			const link = control.closest('a[data-form-field]')
@@ -858,6 +872,7 @@ export class FormBinding implements FormBindingInterface {
 	}
 
 	#onBlur(event: FocusEvent): void {
+		this.#releaseHeld()
 		const target = event.target
 		const control =
 			Iterator.from(this.#options?.presentations ?? []).find(
@@ -897,7 +912,10 @@ export class FormBinding implements FormBindingInterface {
 			)
 		)
 			return
-		this.#finishPress()
+		// Touch a previous press still holds joins this press, whose own click decides it.
+		if (this.#release !== undefined) clearTimeout(this.#release)
+		this.#release = undefined
+		this.#click = undefined
 		this.#pointer = event.pointerId
 	}
 
@@ -905,7 +923,25 @@ export class FormBinding implements FormBindingInterface {
 		if (event.pointerId !== this.#pointer) return
 		// A task keeps the pointerup-to-click sequence free of layout-changing feedback.
 		if (this.#release !== undefined) clearTimeout(this.#release)
-		this.#release = setTimeout(() => this.#finishPress(), 0)
+		const canceled = event.type === 'pointercancel'
+		this.#release = setTimeout(() => this.#settlePress(canceled), 0)
+	}
+
+	#settlePress(canceled: boolean): void {
+		const click = this.#click
+		this.#pointer = undefined
+		this.#release = undefined
+		this.#click = undefined
+		// A prevented or stopped click holds the touch until a reset or the next focus change.
+		if (canceled || (click !== undefined && !click.defaultPrevented)) this.#finishPress()
+	}
+
+	#held(): boolean {
+		return this.#pointer === undefined && this.#release === undefined && this.#deferred.size > 0
+	}
+
+	#releaseHeld(): void {
+		if (this.#held()) this.#finishPress()
 	}
 
 	#finishPress(): void {
@@ -926,6 +962,7 @@ export class FormBinding implements FormBindingInterface {
 		if (this.#release !== undefined) clearTimeout(this.#release)
 		this.#release = undefined
 		this.#pointer = undefined
+		this.#click = undefined
 		this.#deferred.clear()
 	}
 
@@ -954,13 +991,7 @@ export class FormBinding implements FormBindingInterface {
 					controls.some((control) => control.willValidate && !control.validity.valid),
 			)
 			if (native.length > 0) {
-				for (const [name] of native) {
-					const target = this.#focusable(name)
-					if (target !== undefined) {
-						target.focus()
-						break
-					}
-				}
+				this.#focusRefusal(native.map(([name]) => name))
 				return
 			}
 			const result = this.#document.prepare()
@@ -969,19 +1000,29 @@ export class FormBinding implements FormBindingInterface {
 			if (result.success) {
 				if (!result.value.signal.aborted && this.#document.pending === result.value)
 					this.#emitter.emit('submit', result.value, event.submitter ?? undefined)
-			} else {
-				for (const error of result.error) {
-					const target = this.#focusable(error.field)
-					if (target !== undefined) {
-						target.focus()
-						break
-					}
-				}
-			}
+			} else this.#focusRefusal(result.error.map((error) => error.field))
 		} catch (error) {
 			this.#emitter.emit('error', error)
 		} finally {
 			this.#submitting = false
+		}
+	}
+
+	#focusRefusal(names: readonly string[]): void {
+		for (const name of new Set(names)) {
+			if (this.#destroyed) return
+			const reveal = this.#options?.reveal
+			if (reveal !== undefined && this.#focusable(name) === undefined) {
+				reveal(name)
+				if (this.#destroyed) return
+				// The hook may mount, move, or show controls the mutation observer reports only later.
+				this.#drain()
+			}
+			const target = this.#focusable(name)
+			if (target !== undefined) {
+				target.focus()
+				return
+			}
 		}
 	}
 
