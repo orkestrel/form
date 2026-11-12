@@ -1613,11 +1613,11 @@ including effects triggered by core changes, so a presentation adapter can apply
 
 An invalid submission focuses only a control a person can reach. A field whose control sits on
 another page, behind a search, or in a hidden pane has none. Supply `reveal` to bring that field
-into the document. The binding calls it with the refused field's name before it focuses, only when
-the field has no focusable control. It then rediscovers controls and focuses the field when the
-hook made it reachable. When the field stays unreachable, the binding moves on to the next refused
-field, as it does without the hook. The hook runs synchronously inside the submit, once per refused
-field. A throw reaches the binding's `error` event and focuses nothing.
+into the document. A refused field a person can already reach takes focus first, and the hook does
+not run. When none is reachable, the binding calls the hook with each refused field's name in order,
+rediscovers controls after each call, and focuses the first field the hook made reachable. The hook
+returns nothing and the binding awaits nothing; a host whose reveal finishes later focuses the
+field itself. A throw reaches the binding's `error` event and focuses nothing.
 
 ```ts
 import { createFormBinding } from '@orkestrel/form/browser'
@@ -1714,13 +1714,13 @@ workaround and the scalar comma-splitting validator for recipient arrays.
 
 Set `defer: true` to hold blur-triggered touch while a primary pointer press on an enabled button
 associated with this form is active. This includes externally associated buttons and presses on
-their descendants. Touch resumes in a task after the press's click, or after cancellation, leaving
-the click sequence free of blur feedback that moves the button. Keyboard blur remains immediate;
-input reads and submission validation remain immediate. Reset and destruction discard deferred touch.
+their descendants. Touch resumes in a task after the press's click, after cancellation, or after a
+release away from the button, leaving the click sequence free of blur feedback that moves the
+button. Keyboard blur remains immediate; input reads and submission validation remain immediate.
+Reset and destruction discard deferred touch.
 
-A press whose click was prevented keeps the touch pending. That covers a click a listener cancels
-with `preventDefault` and a click a listener stops before the binding's document listener reads it.
-The touch then waits for a reset, which discards it, or for the next focus change, which applies it.
+A release on the button whose click never reaches the binding keeps the touch pending: a click a
+listener prevented, or one a listener stopped. The touch then waits for a reset, which discards it, or for the next focus change, which applies it.
 A later press on a form button carries the pending touch and decides it by its own click. A
 confirmation gate that holds its first press back therefore keeps the field's feedback still while
 it is armed, and the confirming press resets the form with nothing shown.

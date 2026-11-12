@@ -59,6 +59,7 @@ export class FormBinding implements FormBindingInterface {
 	#pointer: number | undefined
 	#release: ReturnType<typeof setTimeout> | undefined
 	#click: MouseEvent | undefined
+	#button: Element | undefined
 
 	/**
 	 * Binds existing controls to the supplied document's answers.
@@ -916,6 +917,7 @@ export class FormBinding implements FormBindingInterface {
 		if (this.#release !== undefined) clearTimeout(this.#release)
 		this.#release = undefined
 		this.#click = undefined
+		this.#button = button
 		this.#pointer = event.pointerId
 	}
 
@@ -923,17 +925,23 @@ export class FormBinding implements FormBindingInterface {
 		if (event.pointerId !== this.#pointer) return
 		// A task keeps the pointerup-to-click sequence free of layout-changing feedback.
 		if (this.#release !== undefined) clearTimeout(this.#release)
-		const canceled = event.type === 'pointercancel'
-		this.#release = setTimeout(() => this.#settlePress(canceled), 0)
+		const button = this.#button
+		// A cancellation or a release away from the pressed button leaves no click to wait for.
+		const abandoned =
+			event.type === 'pointercancel' ||
+			button === undefined ||
+			!event.composedPath().includes(button)
+		this.#release = setTimeout(() => this.#settlePress(abandoned), 0)
 	}
 
-	#settlePress(canceled: boolean): void {
+	#settlePress(abandoned: boolean): void {
 		const click = this.#click
 		this.#pointer = undefined
 		this.#release = undefined
 		this.#click = undefined
+		this.#button = undefined
 		// A prevented or stopped click holds the touch until a reset or the next focus change.
-		if (canceled || (click !== undefined && !click.defaultPrevented)) this.#finishPress()
+		if (abandoned || (click !== undefined && !click.defaultPrevented)) this.#finishPress()
 	}
 
 	#held(): boolean {
@@ -963,6 +971,7 @@ export class FormBinding implements FormBindingInterface {
 		this.#release = undefined
 		this.#pointer = undefined
 		this.#click = undefined
+		this.#button = undefined
 		this.#deferred.clear()
 	}
 
@@ -1009,10 +1018,20 @@ export class FormBinding implements FormBindingInterface {
 	}
 
 	#focusRefusal(names: readonly string[]): void {
-		for (const name of new Set(names)) {
+		const refused = [...new Set(names)]
+		// A refused field a person can already reach takes focus before any host reveal runs.
+		for (const name of refused) {
+			const target = this.#focusable(name)
+			if (target !== undefined) {
+				target.focus()
+				return
+			}
+		}
+		const reveal = this.#options?.reveal
+		if (reveal === undefined) return
+		for (const name of refused) {
 			if (this.#destroyed) return
-			const reveal = this.#options?.reveal
-			if (reveal !== undefined && this.#focusable(name) === undefined) {
+			if (this.#focusable(name) === undefined) {
 				reveal(name)
 				if (this.#destroyed) return
 				// The hook may mount, move, or show controls the mutation observer reports only later.

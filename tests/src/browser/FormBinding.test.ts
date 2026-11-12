@@ -557,6 +557,43 @@ describe('native binding', () => {
 		}
 	})
 
+	it('applies deferred touch after a release away from the button and holds one on it', async () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ name: 'name', control: 'text', rule: { required: true } }] },
+			'<form><input name="name"><button type="button">Hold</button></form>',
+		)
+		fixture.binding.destroy()
+		const binding = createFormBinding(fixture.element, fixture.document, { defer: true })
+		const button = requireValue(fixture.element.querySelector('button'))
+		try {
+			const input = readNativeInput(fixture.host, 'name')
+			input.focus()
+			button.dispatchEvent(
+				new PointerEvent('pointerdown', { bubbles: true, isPrimary: true, pointerId: 11 }),
+			)
+			button.focus()
+			expect(fixture.document.touched.has('name')).toBe(false)
+			document.body.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 11 }))
+			await waitForDelay()
+			expect(fixture.document.touched.has('name')).toBe(true)
+
+			fixture.document.clear()
+			input.focus()
+			button.dispatchEvent(
+				new PointerEvent('pointerdown', { bubbles: true, isPrimary: true, pointerId: 12 }),
+			)
+			button.focus()
+			button.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 12 }))
+			await waitForDelay()
+			expect(fixture.document.touched.has('name')).toBe(false)
+			input.focus()
+			expect(fixture.document.touched.has('name')).toBe(true)
+		} finally {
+			binding.destroy()
+			fixture.destroy()
+		}
+	})
+
 	it('holds deferred touch after a press whose click a target listener prevented', async () => {
 		const fixture = createNativeFormFixture(
 			{ fields: [{ name: 'name', control: 'text', rule: { required: true } }] },
@@ -740,13 +777,13 @@ describe('native binding', () => {
 			},
 		})
 		try {
+			editNativeAnswer(fixture.host, 'visible', 'Shown')
 			fixture.element.requestSubmit()
 			expect(reveals.calls).toEqual([['hidden', false]])
 			expect(document.activeElement).toBe(readNativeInput(fixture.host, 'hidden'))
 			expect(readNativeInput(fixture.host, 'hidden').getAttribute('aria-invalid')).toBe('true')
 
 			editNativeAnswer(fixture.host, 'hidden', 'Shown')
-			editNativeAnswer(fixture.host, 'visible', 'Shown')
 			readNativeInput(fixture.host, 'visible').focus()
 			fixture.element.requestSubmit()
 			expect(reveals.calls).toEqual([
@@ -763,7 +800,7 @@ describe('native binding', () => {
 		}
 	})
 
-	it('moves past a refused field the host hook leaves unreachable and reports a throwing hook', () => {
+	it('focuses a reachable refused field without calling the host hook', () => {
 		const fixture = createNativeFormFixture(
 			{
 				fields: [
@@ -775,31 +812,70 @@ describe('native binding', () => {
 		)
 		fixture.binding.destroy()
 		const reveals = createRecorder<readonly [string]>()
-		const errors = createRecorder<readonly [unknown]>()
-		const failure = new Error('Reveal failed')
 		const binding = createFormBinding(fixture.element, fixture.document, {
 			reveal: reveals.handler,
-			on: { error: errors.handler },
 		})
 		try {
 			fixture.element.requestSubmit()
-			expect(reveals.calls).toEqual([['hidden']])
+			expect(reveals.calls).toEqual([])
 			expect(document.activeElement).toBe(readNativeInput(fixture.host, 'visible'))
-			expect(errors.count).toBe(0)
 		} finally {
 			binding.destroy()
+			fixture.destroy()
 		}
-		const throwing = createFormBinding(fixture.element, fixture.document, {
+	})
+
+	it('moves past a refused field the host hook leaves unreachable', () => {
+		const fixture = createNativeFormFixture(
+			{
+				fields: [
+					{ name: 'first', control: 'text', rule: { required: true } },
+					{ name: 'second', control: 'text', rule: { required: true } },
+				],
+			},
+			'<form><div hidden><input name="first"></div><div hidden><input name="second"></div></form>',
+		)
+		fixture.binding.destroy()
+		const reveals = createRecorder<readonly [string]>()
+		const panes = fixture.element.querySelectorAll('div')
+		const binding = createFormBinding(fixture.element, fixture.document, {
+			reveal: (name) => {
+				reveals.handler(name)
+				if (name === 'second') requireValue(panes[1]).hidden = false
+			},
+		})
+		try {
+			fixture.element.requestSubmit()
+			expect(reveals.calls).toEqual([['first'], ['second']])
+			expect(document.activeElement).toBe(readNativeInput(fixture.host, 'second'))
+		} finally {
+			binding.destroy()
+			fixture.destroy()
+		}
+	})
+
+	it('reports a throwing host hook and focuses nothing', () => {
+		const fixture = createNativeFormFixture(
+			{ fields: [{ name: 'hidden', control: 'text', rule: { required: true } }] },
+			'<form><div hidden><input name="hidden"></div><button>Save</button></form>',
+		)
+		fixture.binding.destroy()
+		const errors = createRecorder<readonly [unknown]>()
+		const failure = new Error('Reveal failed')
+		const save = requireValue(fixture.element.querySelector('button'))
+		const binding = createFormBinding(fixture.element, fixture.document, {
 			reveal: () => {
 				throw failure
 			},
 			on: { error: errors.handler },
 		})
 		try {
+			save.focus()
 			fixture.element.requestSubmit()
 			expect(errors.calls).toEqual([[failure]])
+			expect(document.activeElement).toBe(save)
 		} finally {
-			throwing.destroy()
+			binding.destroy()
 			fixture.destroy()
 		}
 	})
